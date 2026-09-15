@@ -199,16 +199,71 @@ use `auto` dispatch, and seeds come from the job's `modelSeeds` unless `--seeds`
 is provided. On CPU this example may be slow, but it avoids GPU-only kernels and
 large search databases.
 
-Outputs are written under:
+The data stage writes `output/tiny/tiny_data.json`. Predictions use the job's
+`name`, regardless of the input JSON filename:
 
 ```text
-output/<job_name>/seed_<seed>/predictions/
+output/tiny/
+├── models/seed-101_sample-0_model.cif
+├── summary_confidences/seed-101_sample-0_summary_confidence.json
+└── full_data/seed-101_sample-0_full_data.json
 ```
+
+Sample numbers are original diffusion sample indices, not confidence ranks.
+`full_data/` is written only with `--need_atom_confidence true` (the default).
 
 For production runs, enable the preprocessing features you need, for example
 `--use_msa true`, `--use_template true`, or `--use_rna_msa true`. Those paths may
 require network access, HMMER/Kalign binaries, and large local search databases;
 see the inference guide for details.
+
+## Prepare Once, Then Predict
+
+`pred` runs both stages by default. To prepare portable inputs separately:
+
+```bash
+# Data only: enable the searches needed for your input
+opendde pred -i input.json -o ./output -D true -P false \
+  --use_template true
+
+# Inference only: use the prepared job named "my_job"
+opendde pred -i ./output/my_job/my_job_data.json -o ./output \
+  -D false -P true --use_template true
+
+# Both stages (the default)
+opendde pred -i input.json -o ./output --use_template true
+
+# Data-only convenience: protein MSA, templates, and RNA MSA when present
+opendde prep -i input.json -o ./output
+```
+
+Use your own `input.json`; `my_job` above is its job's `name`. Data-only never
+loads the model. Inference-only also accepts a directory and recursively finds
+only `*_data.json` bundles; it runs no searches and does not rewrite inputs.
+Both stage switches default to `true`; setting both to `false` is an error.
+
+A prepared protein bundle with chain ID `A` contains:
+
+```text
+<out>/<name>/
+├── <name>_data.json
+└── msas/
+    ├── <name>__A_pairedmsa.a3m
+    ├── <name>__A_unpairedmsa.a3m
+    └── <name>__A_template_0.cif
+```
+
+Only supplied or generated resources are included. Paths are relative to their
+JSON file, so the whole job directory can be moved. You can replace the prepared
+unpaired A3M in place and keep the paired A3M and templates for inference-only.
+The existing `msa_pair_as_unpair=true` default also merges paired rows into the
+unpaired pool and deduplicates them.
+
+See the [native JSON example](examples/example_wrapper_input.json) and
+[input format](docs/infer_json_format.md) for explicit templates and residue
+mappings. The example's resource paths are illustrative; supply those files
+before running it. Automatic templates use `--max_template_date` (default
+`2021-09-30`); explicit templates bypass that cutoff.
 
 ## Multi-GPU Fold-CP Inference
 
@@ -223,14 +278,20 @@ see the inference guide for details.
 > for controlled launch commands and validation guidance.
 
 OpenDDE supports a `1 x P` Fold-CP inference mode for larger inputs, where `P`
-can be any available GPU count greater than one. Launch it with `torchrun` so
-that one process runs on each GPU. For example, four GPUs use:
+can be any available GPU count greater than one. Prepare once in a single
+process, then launch inference-only with one `torchrun` process per GPU.
+Distributed data preparation is rejected. For example, four GPUs use:
 
 ```bash
+opendde pred -i examples/protein_200.json -o ./output_foldcp \
+  -D true -P false \
+  --use_msa false --use_template false --use_rna_msa false
+
 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node 4 \
   -m runner.batch_inference pred \
-  -i examples/protein_200.json \
+  -i ./output_foldcp/synthetic_protein_200/synthetic_protein_200_data.json \
   -o ./output_foldcp \
+  -D false -P true \
   -n opendde_v1 \
   --use_msa false \
   --use_template false \
@@ -264,12 +325,12 @@ including covalent bonds, ligands, modifications, MSA paths, and template paths.
 ## CLI Overview
 
 ```bash
-opendde pred    # run inference
+opendde pred    # prepare portable inputs and run inference; select stages with -D/-P
 opendde doctor  # inspect Python/CUDA/kernel setup
 opendde json    # convert PDB/CIF structures to OpenDDE JSON
-opendde msa     # protein MSA preprocessing
-opendde mt      # protein MSA + template preprocessing
-opendde prep    # protein MSA + template + RNA MSA preprocessing
+opendde msa     # legacy low-level protein MSA preprocessing
+opendde mt      # legacy low-level protein MSA + template preprocessing
+opendde prep    # portable data-only bundles: protein MSA + templates + RNA MSA
 ```
 
 Use `opendde <command> --help` for command-specific options. Public model names

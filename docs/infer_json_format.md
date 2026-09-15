@@ -39,6 +39,12 @@ Job fields:
 Every entity has `count`. Optional `id` is a list of chain IDs; its length must
 match `count`.
 
+Each job's `name` determines `<out>/<name>/` and `<name>_data.json`; the input
+JSON filename has no naming semantics. Names must be safe path components and
+unique across the input collection. Protein MSA/template paths and RNA MSA paths
+resolve relative to the JSON file that contains them, not the launch directory.
+Prepared bundles use the same rule and can be moved as complete job directories.
+
 ## `proteinChain`
 
 ```json
@@ -50,9 +56,15 @@ match `count`.
     "modifications": [
       {"ptmType": "CCD_MSE", "ptmPosition": 1}
     ],
-    "pairedMsaPath": "/absolute/path/to/pairing.a3m",
-    "unpairedMsaPath": "/absolute/path/to/non_pairing.a3m",
-    "templatesPath": "/absolute/path/to/hmmsearch.a3m"
+    "pairedMsaPath": "assets/paired.a3m",
+    "unpairedMsaPath": "assets/unpaired.a3m",
+    "templates": [
+      {
+        "mmcifPath": "assets/template.cif",
+        "queryIndices": [0, 1, 2],
+        "templateIndices": [5, 6, 7]
+      }
+    ]
   }
 }
 ```
@@ -60,8 +72,41 @@ match `count`.
 - `sequence`: 20 standard amino-acid letters plus `X`.
 - `ptmType`: CCD code prefixed with `CCD_`; `ptmPosition` is 1-based.
 - `pairedMsaPath`, `unpairedMsaPath`: optional protein A3M files.
-- `templatesPath`: optional template hits file (`.a3m` or `.hhr`), used only with
-  `--use_template true`.
+- An entity with `count: 2` and `id: ["A", "B"]` shares one paired/unpaired
+  MSA pair, named using its first ID (`A`) in the prepared bundle.
+
+### Protein templates
+
+With `--use_template true`, `templates` has three states:
+
+| Value | Behavior |
+| --- | --- |
+| Omitted or `null` | Automatic template search/selection during the data stage. |
+| `[]` | Use no templates for this protein. |
+| Non-empty list | Use the supplied explicit templates without automatic search. |
+
+Each explicit entry requires `mmcifPath`, `queryIndices`, and `templateIndices`.
+The two index lists have equal length and contain zero-based residue indices in
+the query and template chain sequences, respectively. An mmCIF with one protein
+chain needs no chain selector; for a multi-protein-chain mmCIF, supply `chainId`
+for the chosen chain. Automatically prepared templates retain that selector
+when needed.
+
+Automatic selection respects `--max_template_date YYYY-MM-DD` (default
+`2021-09-30`). Explicit templates bypass the release-date cutoff, matching AF3
+semantics; the existing model assembly still uses at most four templates.
+Set `--use_template true` during inference to consume them.
+
+Legacy `templatesPath` accepts a hit file (`.a3m` or `.hhr`). With template
+preparation enabled and `templates` omitted or `null`, the wrapper finalizes
+those hits into explicit mmCIF files and residue mappings. Direct inference
+with a legacy hit file remains supported but may require Kalign and cached or
+remote mmCIFs. A non-`null` `templates` value takes precedence over `templatesPath`.
+
+The complete [wrapper example](../examples/example_wrapper_input.json) has job
+name `wrapper_demo`, independent of its filename. Its relative resource files
+are illustrative and are not included; provide matching A3M/mmCIF files before
+using it.
 
 ## `dnaSequence`
 
@@ -93,7 +138,7 @@ match `count`.
     "modifications": [
       {"modificationType": "CCD_5MC", "basePosition": 4}
     ],
-    "unpairedMsaPath": "/absolute/path/to/rna_msa.a3m"
+    "unpairedMsaPath": "assets/rna_msa.a3m"
   }
 }
 ```
@@ -169,14 +214,41 @@ The inference-only build ignores legacy `constraint` fields. Use
 
 ## Output layout
 
-`opendde pred` writes:
+The data stage (`opendde pred -D true -P false`, or `opendde prep`) writes a
+single-job JSON and copies supplied/generated resources:
 
 ```text
-<out_dir>/<job_name>/seed_<seed>/predictions/
-├── <job_name>_sample_<rank>.cif
-├── <job_name>_summary_confidence_sample_<rank>.json
-└── <job_name>_full_data_sample_<rank>.json   # only when --need_atom_confidence true
+<out>/<name>/
+├── <name>_data.json
+└── msas/
+    ├── <name>__A_pairedmsa.a3m
+    ├── <name>__A_unpairedmsa.a3m
+    └── <name>__A_template_0.cif
 ```
+
+Resources appear only when supplied or generated. Unknown JSON fields and
+unrelated entity fields are preserved. RNA MSA uses the same `msas/` directory
+and `<name>__<entity-ID>_unpairedmsa.a3m` naming.
+
+You may replace just the prepared unpaired A3M file, or its `unpairedMsaPath`,
+then run `pred -D false -P true` on the prepared JSON. The paired MSA and
+templates remain independent inputs. The default `msa_pair_as_unpair=true`
+also contributes paired rows to the unpaired pool with deduplication. See
+[MSA pairing details](msa_template_pipeline.md#protein-msa-and-pairing).
+
+Prediction writes directly under the requested output directory:
+
+```text
+<out>/<name>/
+├── models/seed-101_sample-0_model.cif
+├── summary_confidences/seed-101_sample-0_summary_confidence.json
+└── full_data/seed-101_sample-0_full_data.json
+```
+
+Sample numbers are original diffusion sample indices, not confidence ranks.
+Seeds are included in filenames. `full_data/` is written only with
+`--need_atom_confidence true` (the default). If inference uses a different output
+directory from preparation, the prepared bundle stays in its original location.
 
 The summary JSON includes confidence metrics such as `plddt`, `gpde`, `ptm`,
 `iptm`, clash flags, and `ranking_score` when available.

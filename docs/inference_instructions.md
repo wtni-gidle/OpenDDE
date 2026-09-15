@@ -151,8 +151,9 @@ Useful environment variables:
 | `OPENDDE_SEARCH_DATABASE_URL` | Override template/RNA-MSA database download root. |
 | `LAYERNORM_TYPE` | LayerNorm backend; defaults to `torch`. Set to `fast_layernorm` to opt into the fused kernel. |
 
-Template/RNA-MSA preprocessing also needs HMMER. Template inference may need
-`kalign`:
+Automatic template/RNA-MSA preparation also needs HMMER. Template preparation
+may need `kalign` for realignment; inference from explicit prepared templates
+needs neither tool:
 
 ```bash
 apt-get update && apt-get install -y hmmer kalign
@@ -184,6 +185,12 @@ declare explicit covalent links between entities.
 
 Full schema: [infer_json_format.md](./infer_json_format.md).
 
+Each job's `name` sets its output directory, independently of the source JSON
+filename. Protein MSA/template paths and RNA MSA paths resolve relative to the
+JSON file. The [wrapper example](../examples/example_wrapper_input.json) shows
+chain IDs and explicit template mappings; its A3M/mmCIF resource files are
+illustrative and must be supplied before running it.
+
 Convert a structure file to JSON:
 
 ```bash
@@ -191,34 +198,71 @@ opendde json -i examples/7pzb.pdb -o ./output --altloc first
 opendde json -i examples/2lwu.cif -o ./output --altloc first --assembly_id 1
 ```
 
-## Preprocess optional features
+## Prepare portable inputs
+
+For an input file `input.json` containing a job named `my_job`:
 
 ```bash
-# Protein MSA
-opendde msa -i examples/input.json -o ./output
+# Data only: enable the features needed by your input
+opendde pred -i input.json -o ./output -D true -P false \
+  --use_template true --use_rna_msa true
 
-# Protein MSA + template search
-opendde mt -i examples/input.json -o ./output
+# Data-only convenience, enabling protein MSA, templates, and RNA MSA
+opendde prep -i input.json -o ./output
 
-# Protein MSA + template search + RNA MSA when RNA is present
-opendde prep -i examples/input.json -o ./output
+# Inference only: consume the prepared bundle
+opendde pred -i ./output/my_job/my_job_data.json -o ./output \
+  -D false -P true --use_template true --use_rna_msa true
 ```
 
-Notes:
+`-D/--run_data_pipeline` and `-P/--run_inference` are booleans, both defaulting
+to `true`. Data-only never loads the model; both `false` is an error. `pred`
+defaults to protein MSA enabled, templates and RNA MSA disabled. `prep` enables
+all three where applicable and prints each prepared JSON path.
+
+For a protein entity with ID `A`, preparation writes:
+
+```text
+<out>/<name>/
+├── <name>_data.json
+└── msas/
+    ├── <name>__A_pairedmsa.a3m
+    ├── <name>__A_unpairedmsa.a3m
+    └── <name>__A_template_0.cif
+```
+
+Only supplied/generated resources appear. The single-job JSON uses paths
+relative to itself, so move the entire job directory together. Search scratch
+files are temporary; the data stage writes one final JSON per job.
+Inference-only accepts the prepared JSON directly or recursively discovers only
+`*_data.json` bundles in a directory. It runs no searches and does not rewrite
+the input JSON. Keep the relevant `--use_*` flags enabled to consume features.
+
+You can replace just the unpaired A3M file in place before inference-only,
+keeping paired A3M and templates. The `msa_pair_as_unpair=true` default also
+merges paired rows into the unpaired pool with deduplication; the paired input
+still supplies cross-chain pairing. See the pipeline guide for supported
+species identifiers in A3M headers.
+
+Search behavior:
 
 - Protein MSA uses the public ColabFold MMseqs2 API unless A3M paths are already
   present in the JSON.
 - Template and RNA-MSA search use local databases under
   `$OPENDDE_ROOT_DIR/search_database/`.
-- Generated JSON files are written under
-  `<out_dir>/.opendde_preprocessed/<input-hash>/` rather than next to the
-  input JSON, so read-only input directories work.
+- With `--use_template true`, omitted or `null` `templates` requests automatic
+  data-stage selection; `[]` uses no templates; a non-empty list uses explicit
+  mmCIFs and residue mappings. Automatic selection uses `--max_template_date`
+  (default `2021-09-30`); explicit templates bypass the cutoff.
+- Prepared explicit templates need no HMMER, Kalign, template database, or PDBe
+  access during inference. Checkpoints and common runtime assets remain needed.
 
-Details: [msa_template_pipeline.md](./msa_template_pipeline.md).
+The low-level `msa`/`mt` diagnostic commands retain legacy intermediate files
+and hit-file behavior. Details: [msa_template_pipeline.md](./msa_template_pipeline.md).
 
 ## Run prediction
 
-Standard run:
+Standard run (both data and inference stages):
 
 ```bash
 opendde pred -i examples/input.json -o ./output -n opendde_v1
@@ -264,14 +308,20 @@ below that.
 > attention-bias addition; this Triton helper is separate from cuEquivariance.
 
 Fold-CP distributes token-pair-heavy inference work over a `1 x P` mesh, where
-`P` can be any available GPU count greater than one. Launch it with `torchrun`
-and expose exactly the GPUs you want to use. For example, four GPUs use:
+`P` can be any available GPU count greater than one. Prepare inputs once in a
+single process, then use `torchrun` with `-D false -P true`; distributed data
+preparation is rejected. For example, four GPUs use:
 
 ```bash
+opendde pred -i examples/protein_200.json -o ./output_foldcp \
+  -D true -P false \
+  --use_msa false --use_template false --use_rna_msa false
+
 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node 4 \
   -m runner.batch_inference pred \
-  -i examples/protein_200.json \
+  -i ./output_foldcp/synthetic_protein_200/synthetic_protein_200_data.json \
   -o ./output_foldcp \
+  -D false -P true \
   -n opendde_v1 \
   --use_msa false \
   --use_template false \
@@ -304,18 +354,6 @@ Runtime notes:
 For single-GPU inference, omit the Fold-CP flags or set
 `--foldcp_mode single --foldcp_size_cp 1`.
 
-Use prepared features:
-
-```bash
-opendde pred -i examples/examples_with_template/example_9fm7.json \
-  -o ./output -n opendde_v1 \
-  --use_msa true --use_template true
-
-opendde pred -i examples/examples_with_rna_msa/example_9gmw_2.json \
-  -o ./output -n opendde_v1 \
-  --use_rna_msa true
-```
-
 ## Optional TFG Guidance
 
 OpenDDE includes default-off Training-Free Guidance (TFG) for protein-ligand
@@ -327,22 +365,37 @@ opendde pred -i examples/input.json -o ./output -n opendde_v1 \
   --use_tfg_guidance true
 ```
 
-Outputs are written to:
+## Prediction outputs
+
+Prediction writes directly under the requested `-o` directory:
 
 ```text
-<out_dir>/<job_name>/seed_<seed>/predictions/
+<out>/<name>/
+├── models/seed-101_sample-0_model.cif
+├── summary_confidences/seed-101_sample-0_summary_confidence.json
+└── full_data/seed-101_sample-0_full_data.json
 ```
+
+Filenames use the original diffusion sample index, not confidence rank. Seeds
+are part of every filename. `full_data/` is written only with
+`--need_atom_confidence true` (the default). The prepared JSON and `msas/` remain
+where the data stage wrote them, even when inference uses a different output
+directory.
 
 ## Common flags
 
 | Flag | Meaning |
 | --- | --- |
+| `-D`, `--run_data_pipeline` | Prepare portable bundles; boolean, default `true`. Use a single process for this stage. |
+| `-P`, `--run_inference` | Predict from prepared inputs; boolean, default `true`. |
 | `-n`, `--model_name` | Model name. Currently `opendde_v1`. |
 | `--load_checkpoint_path` | Explicit checkpoint path. |
 | `--seeds` | Comma-separated seeds, e.g. `101,102`. Overrides the job's `modelSeeds`; if unset, `modelSeeds` are used, or a random seed when both are absent. |
 | `--use_msa` | Use/generate protein MSA features. |
 | `--use_template` | Use/generate template features. |
+| `--max_template_date` | Automatic data-stage template cutoff, default `2021-09-30`. Explicit templates bypass it. |
 | `--use_rna_msa` | Use/generate RNA MSA features; requires `--use_msa true`. |
+| `--need_atom_confidence` | Write detailed confidence JSONs in `full_data/`; default `true`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |
 | `--foldcp_mode` | `single` or `distributed`; use `distributed` with `torchrun` for multi-GPU Fold-CP inference. |
 | `--foldcp_size_dp` | Compatibility option; only `1` is supported. Runtime `2 x 2` topology is not maintained. |
