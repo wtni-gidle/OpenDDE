@@ -5,10 +5,13 @@ import os
 import pathlib
 import shutil
 import time
+from datetime import datetime
 from typing import Any, Optional, Sequence
 
 from opendde.config.data import default_root_dir
 from opendde.config.dependency_url import SEARCH_DATABASE_URL
+from opendde.data.template.template_finalizer import finalize_template_hits
+from opendde.data.template.template_utils import TemplateHitFeaturizer
 from opendde.data.tools.search import HmmsearchConfig, run_hmmsearch_with_a3m
 from opendde.utils.download import download_from_url
 from opendde.utils.logger import get_logger
@@ -169,6 +172,8 @@ def update_template_info(
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
+    template_featurizer: Optional[TemplateHitFeaturizer] = None,
+    max_template_date: str | datetime | None = None,
 ) -> bool:
     """
     Update template information in the JSON data.
@@ -179,6 +184,8 @@ def update_template_info(
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
+        template_featurizer: If supplied, replace searched paths with explicit templates.
+        max_template_date: Optional cutoff for automatic template selection.
 
     Returns:
         bool: True if any template information was updated.
@@ -189,6 +196,8 @@ def update_template_info(
         for sequence in infer_data["sequences"]:
             if "proteinChain" in sequence:
                 protein_chain = sequence["proteinChain"]
+                if protein_chain.get("templates") is not None:
+                    continue
                 # Skip if templatesPath already exists and is valid
                 if "templatesPath" in protein_chain and os.path.exists(
                     protein_chain["templatesPath"]
@@ -240,6 +249,20 @@ def update_template_info(
                         seqres_database_path=seqres_database_path,
                     )
                 protein_chain["templatesPath"] = template_path
+                actual_updated = True
+    if template_featurizer is not None:
+        for infer_data in json_data:
+            for sequence in infer_data["sequences"]:
+                protein_chain = sequence.get("proteinChain")
+                if protein_chain is None or protein_chain.get("templates") is not None:
+                    continue
+                protein_chain["templates"] = finalize_template_hits(
+                    protein_chain["sequence"],
+                    protein_chain["templatesPath"],
+                    template_featurizer,
+                    max_template_date=max_template_date,
+                )
+                del protein_chain["templatesPath"]
                 actual_updated = True
     return actual_updated
 

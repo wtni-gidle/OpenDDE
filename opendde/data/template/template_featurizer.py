@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Aureka AI Research
 import dataclasses
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Self, Sequence, TypeAlias
 
 import numpy as np
@@ -13,12 +14,14 @@ from opendde.data.constants import (
     RNA_CHAIN,
 )
 from opendde.data.msa.msa_utils import map_to_standard
+from opendde.data.template.template_finalizer import load_explicit_template_features
 from opendde.data.template.template_parser import HHRParser, HmmsearchA3MParser
 from opendde.data.template.template_utils import (
     TEMPLATE_FEATURES,
     DistogramFeaturesConfig,
     TemplateFeatures,
     TemplateHitFeaturizer,
+    TemplateHitProcessor,
 )
 from opendde.data.utils import pad_to
 from opendde.utils.logger import get_logger
@@ -246,6 +249,7 @@ class InferenceTemplateFeaturizer:
         atom_array: AtomArray,
         use_template: bool = True,
         online_template_featurizer: Optional[TemplateHitFeaturizer] = None,
+        base_dir: str | Path = ".",
     ) -> Dict[str, np.ndarray]:
         """
         Generates template features during inference.
@@ -255,6 +259,7 @@ class InferenceTemplateFeaturizer:
             atom_array: Parsed atom structure.
             use_template: Whether to use templates.
             online_template_featurizer: Featurizer for processing template hits.
+            base_dir: Base directory for relative explicit mmCIF paths.
 
         Returns:
             Dictionary of template features.
@@ -268,9 +273,11 @@ class InferenceTemplateFeaturizer:
 
         for eid, info in enumerate(bioassembly):
             seq, count, ctype, t_path = "", 0, LIGAND_CHAIN_TYPES, ""
+            explicit_templates = None
 
             if "proteinChain" in info:
                 c = info["proteinChain"]
+                explicit_templates = c.get("templates")
                 seq, count, ctype, t_path = (
                     c["sequence"],
                     c["count"],
@@ -290,7 +297,19 @@ class InferenceTemplateFeaturizer:
                 count, ctype = info["ion"]["count"], LIGAND_CHAIN_TYPES
 
             templates = []
-            if t_path and use_template and online_template_featurizer:
+            if use_template and explicit_templates is not None:
+                processor = (
+                    online_template_featurizer._hit_processor
+                    if online_template_featurizer is not None
+                    else TemplateHitProcessor(mmcif_dir="")
+                )
+                templates = load_explicit_template_features(
+                    seq,
+                    explicit_templates,
+                    base_dir=base_dir,
+                    template_processor=processor,
+                )
+            elif t_path and use_template and online_template_featurizer:
                 assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
                 with open(t_path, "r") as f:
                     content = f.read()
