@@ -110,6 +110,12 @@ def test_write_prepared_job_makes_portable_target_bundle(tmp_path: Path):
     assert loaded[0]["sequences"][0]["proteinChain"]["pairedMsaPath"] == (
         "msas/target__A_pairedmsa.a3m"
     )
+    assert (job_dir / "msas" / "target__R_unpairedmsa.a3m").read_text() == contents[
+        "rna"
+    ]
+    assert loaded[0]["sequences"][1]["rnaSequence"]["unpairedMsaPath"] == (
+        "msas/target__R_unpairedmsa.a3m"
+    )
 
 
 def test_write_prepared_job_uses_name_based_directories_for_multiple_jobs(

@@ -90,33 +90,41 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
             if not isinstance(sequence, dict):
                 continue
             protein = sequence.get("proteinChain")
-            if not isinstance(protein, dict):
-                continue
-            label = _entity_label(protein, index)
-            _copy_resource(
-                protein,
-                "pairedMsaPath",
-                msa_dir / f"{prepared['name']}__{label}_pairedmsa.a3m",
-                job_dir,
-            )
-            _copy_resource(
-                protein,
-                "unpairedMsaPath",
-                msa_dir / f"{prepared['name']}__{label}_unpairedmsa.a3m",
-                job_dir,
-            )
-            templates = protein.get("templates")
-            if isinstance(templates, list):
-                for template_index, template in enumerate(templates):
-                    if not isinstance(template, dict):
-                        continue
-                    _copy_resource(
-                        template,
-                        "mmcifPath",
-                        msa_dir
-                        / f"{prepared['name']}__{label}_template_{template_index}.cif",
-                        job_dir,
-                    )
+            if isinstance(protein, dict):
+                label = _entity_label(protein, index)
+                _copy_resource(
+                    protein,
+                    "pairedMsaPath",
+                    msa_dir / f"{prepared['name']}__{label}_pairedmsa.a3m",
+                    job_dir,
+                )
+                _copy_resource(
+                    protein,
+                    "unpairedMsaPath",
+                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa.a3m",
+                    job_dir,
+                )
+                templates = protein.get("templates")
+                if isinstance(templates, list):
+                    for template_index, template in enumerate(templates):
+                        if not isinstance(template, dict):
+                            continue
+                        _copy_resource(
+                            template,
+                            "mmcifPath",
+                            msa_dir
+                            / f"{prepared['name']}__{label}_template_{template_index}.cif",
+                            job_dir,
+                        )
+            rna = sequence.get("rnaSequence")
+            if isinstance(rna, dict):
+                label = _entity_label(rna, index)
+                _copy_resource(
+                    rna,
+                    "unpairedMsaPath",
+                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa.a3m",
+                    job_dir,
+                )
 
     prepared_path = job_dir / f"{prepared['name']}_data.json"
     with prepared_path.open("w", encoding="utf-8") as handle:
