@@ -132,3 +132,41 @@ def test_write_prepared_job_uses_name_based_directories_for_multiple_jobs(
 
     assert first_prepared == str(tmp_path / "out" / "target" / "target_data.json")
     assert second_prepared == str(tmp_path / "out" / "second" / "second_data.json")
+
+
+def test_write_prepared_job_assigns_fallback_labels_without_overwriting_msa(
+    tmp_path: Path,
+):
+    """A fallback RNA label must not overwrite an earlier explicit protein label."""
+    protein_msa = tmp_path / "protein.a3m"
+    rna_msa = tmp_path / "rna.a3m"
+    protein_msa.write_text(">protein\nACD\n")
+    rna_msa.write_text(">rna\nAUG\n")
+    job = {
+        "name": "mixed",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "ACD",
+                    "id": ["B"],
+                    "unpairedMsaPath": str(protein_msa),
+                }
+            },
+            {"rnaSequence": {"sequence": "AUG", "unpairedMsaPath": str(rna_msa)}},
+        ],
+    }
+
+    prepared = write_prepared_job(job, tmp_path / "out")
+    job_dir = tmp_path / "out" / "mixed"
+    loaded = json.loads(Path(prepared).read_text())
+
+    assert (
+        job_dir / "msas" / "mixed__B_unpairedmsa.a3m"
+    ).read_text() == ">protein\nACD\n"
+    assert (job_dir / "msas" / "mixed__A_unpairedmsa.a3m").read_text() == ">rna\nAUG\n"
+    assert loaded[0]["sequences"][0]["proteinChain"]["unpairedMsaPath"] == (
+        "msas/mixed__B_unpairedmsa.a3m"
+    )
+    assert loaded[0]["sequences"][1]["rnaSequence"]["unpairedMsaPath"] == (
+        "msas/mixed__A_unpairedmsa.a3m"
+    )

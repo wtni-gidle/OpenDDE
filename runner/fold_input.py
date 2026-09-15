@@ -60,11 +60,30 @@ def load_input_jobs(input_path: str) -> list[tuple[Path, dict[str, Any]]]:
     return [(json_path, resolve_job_paths(job, json_path)) for job in jobs]
 
 
-def _entity_label(chain: dict[str, Any], index: int) -> str:
+def _sequential_entity_label(index: int) -> str:
+    label = ""
+    while True:
+        index, remainder = divmod(index, 26)
+        label = chr(ord("A") + remainder) + label
+        if index == 0:
+            return label
+        index -= 1
+
+
+def _entity_label(chain: dict[str, Any], used_labels: set[str]) -> str:
     entity_ids = chain.get("id")
     if isinstance(entity_ids, list) and entity_ids:
-        return str(entity_ids[0])
-    return chr(ord("A") + index)
+        label = str(entity_ids[0])
+        if label not in used_labels:
+            used_labels.add(label)
+            return label
+    index = 0
+    while True:
+        label = _sequential_entity_label(index)
+        if label not in used_labels:
+            used_labels.add(label)
+            return label
+        index += 1
 
 
 def _copy_resource(
@@ -86,12 +105,13 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
 
     sequences = prepared.get("sequences")
     if isinstance(sequences, list):
-        for index, sequence in enumerate(sequences):
+        used_labels: set[str] = set()
+        for sequence in sequences:
             if not isinstance(sequence, dict):
                 continue
             protein = sequence.get("proteinChain")
             if isinstance(protein, dict):
-                label = _entity_label(protein, index)
+                label = _entity_label(protein, used_labels)
                 _copy_resource(
                     protein,
                     "pairedMsaPath",
@@ -118,7 +138,7 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
                         )
             rna = sequence.get("rnaSequence")
             if isinstance(rna, dict):
-                label = _entity_label(rna, index)
+                label = _entity_label(rna, used_labels)
                 _copy_resource(
                     rna,
                     "unpairedMsaPath",
