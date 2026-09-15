@@ -1,28 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Aureka AI Research
+import json
 import os
 import stat
-from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
-from biotite.structure import AtomArray
+from biotite.structure import AtomArray, BondList
+from biotite.structure.io import pdbx
 
 from runner.dumper import DataDumper, get_clean_full_confidence
 
 
-def _patch_minimal_writers(monkeypatch, dumper, *, fail_confidence=False):
-    def save_structure(**kwargs):
-        Path(kwargs["prediction_save_dir"], "new.cif").write_text("new")
-
-    def save_confidence(**kwargs):
-        if fail_confidence:
-            raise OSError("simulated output failure")
-        Path(kwargs["prediction_save_dir"], "new.json").write_text("new")
-
-    monkeypatch.setattr(dumper, "_save_structure", save_structure)
-    monkeypatch.setattr(dumper, "_save_confidence", save_confidence)
+@pytest.fixture
+def atom_array(monkeypatch):
+    # Keep CIF serialization real without requiring the external CCD database.
+    monkeypatch.setattr("opendde.data.utils.biotite_load_ccd_cif", lambda: {})
+    atoms = AtomArray(1)
+    atoms.atom_name[:] = "CA"
+    atoms.res_name[:] = "ALA"
+    atoms.res_id[:] = 1
+    atoms.chain_id[:] = "A"
+    atoms.element[:] = "C"
+    atoms.bonds = BondList(1)
+    atoms.set_annotation("label_asym_id", np.array(["A"]))
+    atoms.set_annotation("label_entity_id", np.array(["1"]))
+    return atoms
 
 
 def _minimal_prediction():
@@ -33,48 +37,102 @@ def _minimal_prediction():
     }
 
 
-def test_dump_predictions_replaces_prior_output_set(tmp_path, monkeypatch):
-    dumper = DataDumper(str(tmp_path))
-    dump_dir = tmp_path / "job" / "seed_1"
-    old_dir = dump_dir / "predictions"
-    old_dir.mkdir(parents=True)
-    (old_dir / "stale_sample_4.cif").write_text("stale")
-    (old_dir / "stale_full_data_sample_4.json").write_text("stale")
-    _patch_minimal_writers(monkeypatch, dumper)
+@pytest.mark.parametrize("sorted_by_ranking_score", [True, False])
+def test_dump_uses_original_sample_indices_and_preserves_other_seeds(
+    tmp_path, atom_array, sorted_by_ranking_score
+):
+    dumper = DataDumper(
+        str(tmp_path),
+        need_atom_confidence=True,
+        sorted_by_ranking_score=sorted_by_ranking_score,
+    )
+    prediction = {
+        "coordinate": torch.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]]),
+        "summary_confidence": [{"ranking_score": 0.1}, {"ranking_score": 0.9}],
+        "full_data": [
+            {"atom_plddt": torch.tensor([0.25], dtype=torch.bfloat16)},
+            {"atom_plddt": torch.tensor([0.75], dtype=torch.bfloat16)},
+        ],
+    }
+    job_dir = tmp_path / "job"
+    first_seed_files = {}
+    for seed in (7, 8):
+        dumper.dump(
+            group_name="",
+            pdb_id="job",
+            seed=seed,
+            pred_dict=prediction,
+            atom_array=atom_array,
+            entity_poly_type={"1": "polypeptide(L)"},
+        )
+        for index, coordinates, score, plddt in (
+            (0, [1.0, 2.0, 3.0], 0.1, 0.25),
+            (1, [4.0, 5.0, 6.0], 0.9, 0.75),
+        ):
+            model = job_dir / "models" / f"seed-{seed}_sample-{index}_model.cif"
+            block = pdbx.CIFFile.read(model).block
+            assert block["entry"]["id"].as_item() == "job"
+            atoms = block["atom_site"]
+            actual_coordinates = [
+                atoms[column].as_array(float)[0]
+                for column in ("Cartn_x", "Cartn_y", "Cartn_z")
+            ]
+            np.testing.assert_allclose(actual_coordinates, coordinates)
+            np.testing.assert_allclose(
+                atoms["B_iso_or_equiv"].as_array(float), [plddt * 100]
+            )
+            summary = (
+                job_dir
+                / "summary_confidences"
+                / (f"seed-{seed}_sample-{index}_summary_confidence.json")
+            )
+            assert json.loads(summary.read_text()) == {"ranking_score": score}
+            full_data = (
+                job_dir / "full_data" / f"seed-{seed}_sample-{index}_full_data.json"
+            )
+            assert json.loads(full_data.read_text()) == {"atom_plddt": [plddt]}
+        if seed == 7:
+            first_seed_files = {
+                path: path.read_bytes() for path in job_dir.rglob("*") if path.is_file()
+            }
 
-    dumper.dump_predictions(
-        pred_dict=_minimal_prediction(),
-        dump_dir=str(dump_dir),
+    assert len(first_seed_files) == 6
+    assert all(
+        path.read_bytes() == content for path, content in first_seed_files.items()
+    )
+    assert {path.name for path in job_dir.iterdir()} == {
+        "models",
+        "summary_confidences",
+        "full_data",
+    }
+    assert len(list(job_dir.rglob("*.cif"))) == 4
+    assert len(list(job_dir.rglob("*.json"))) == 8
+    assert "b_factor" not in atom_array.get_annotation_categories()
+    assert prediction["full_data"][0]["atom_plddt"].dtype == torch.bfloat16
+
+
+def test_dump_omits_full_data_directory_when_disabled(tmp_path, atom_array):
+    dumper = DataDumper(str(tmp_path))
+    prediction = _minimal_prediction()
+    prediction.pop("full_data")
+    dumper.dump(
+        group_name="",
         pdb_id="job",
-        atom_array=None,
-        entity_poly_type={},
         seed=1,
+        pred_dict=prediction,
+        atom_array=atom_array,
+        entity_poly_type={"1": "polypeptide(L)"},
     )
 
-    assert {path.name for path in old_dir.iterdir()} == {"new.cif", "new.json"}
-    assert not list(dump_dir.glob(".predictions-*"))
-
-
-def test_dump_predictions_preserves_prior_set_when_staging_fails(tmp_path, monkeypatch):
-    dumper = DataDumper(str(tmp_path))
-    dump_dir = tmp_path / "job" / "seed_1"
-    old_dir = dump_dir / "predictions"
-    old_dir.mkdir(parents=True)
-    (old_dir / "previous.cif").write_text("previous")
-    _patch_minimal_writers(monkeypatch, dumper, fail_confidence=True)
-
-    with pytest.raises(OSError, match="simulated output failure"):
-        dumper.dump_predictions(
-            pred_dict=_minimal_prediction(),
-            dump_dir=str(dump_dir),
-            pdb_id="job",
-            atom_array=None,
-            entity_poly_type={},
-            seed=1,
-        )
-
-    assert {path.name for path in old_dir.iterdir()} == {"previous.cif"}
-    assert not list(dump_dir.glob(".predictions-*"))
+    assert {
+        path.relative_to(tmp_path / "job").as_posix()
+        for path in (tmp_path / "job").rglob("*")
+        if path.is_file()
+    } == {
+        "models/seed-1_sample-0_model.cif",
+        "summary_confidences/seed-1_sample-0_summary_confidence.json",
+    }
+    assert not (tmp_path / "job" / "full_data").exists()
 
 
 def test_confidence_serialization_does_not_mutate_prediction_tree():
@@ -115,50 +173,42 @@ def test_dumper_rejects_unsafe_library_output_coordinates(
 
 
 def test_structure_serialization_does_not_annotate_caller_atom_array(
-    tmp_path, monkeypatch
+    tmp_path, atom_array
 ):
     dumper = DataDumper(str(tmp_path))
-    atom_array = AtomArray(1)
-    written = []
-    monkeypatch.setattr(
-        "runner.dumper.save_structure_cif",
-        lambda **kwargs: written.append(kwargs["atom_array"]),
-    )
-
-    dumper._save_structure(
-        pred_coordinates=torch.zeros(1, 1, 3),
-        prediction_save_dir=str(tmp_path),
-        sample_name="sample",
+    prediction = _minimal_prediction()
+    prediction["full_data"] = [{"atom_plddt": torch.tensor([0.8765])}]
+    dumper.dump(
+        group_name="",
+        pdb_id="job",
+        pred_dict=prediction,
         atom_array=atom_array,
         entity_poly_type={},
         seed=1,
-        sorted_indices=[0],
-        b_factor=[np.array([87.65])],
     )
 
     assert "b_factor" not in atom_array.get_annotation_categories()
-    assert written[0] is not atom_array
-    np.testing.assert_array_equal(written[0].b_factor, np.array([87.65]))
+    model = tmp_path / "job" / "models" / "seed-1_sample-0_model.cif"
+    atoms = pdbx.CIFFile.read(model).block["atom_site"]
+    np.testing.assert_allclose(atoms["B_iso_or_equiv"].as_array(float), [87.65])
 
 
-def test_dump_predictions_directory_keeps_umask_permissions(tmp_path, monkeypatch):
-    dumper = DataDumper(str(tmp_path))
-    dump_dir = tmp_path / "job" / "seed_1"
-    dump_dir.mkdir(parents=True)
-    _patch_minimal_writers(monkeypatch, dumper)
+def test_output_directories_keep_umask_permissions(tmp_path, atom_array):
+    dumper = DataDumper(str(tmp_path), need_atom_confidence=True)
 
     previous_umask = os.umask(0o022)
     try:
-        dumper.dump_predictions(
+        dumper.dump(
             pred_dict=_minimal_prediction(),
-            dump_dir=str(dump_dir),
+            group_name="",
             pdb_id="job",
-            atom_array=None,
+            atom_array=atom_array,
             entity_poly_type={},
             seed=1,
         )
     finally:
         os.umask(previous_umask)
 
-    mode = stat.S_IMODE((dump_dir / "predictions").stat().st_mode)
-    assert mode == 0o755
+    for directory in ("models", "summary_confidences", "full_data"):
+        mode = stat.S_IMODE((tmp_path / "job" / directory).stat().st_mode)
+        assert mode == 0o755

@@ -1366,7 +1366,8 @@ class InferenceRunner(object):
 
         Args:
             need_atom_confidence (bool): Whether to dump atom-level confidence.
-            sorted_by_ranking_score (bool): Whether to sort results by ranking score.
+            sorted_by_ranking_score (bool): Legacy compatibility option; output
+                filenames always retain the original diffusion sample index.
         """
         self.dumper = DataDumper(
             base_dir=self.dump_dir,
