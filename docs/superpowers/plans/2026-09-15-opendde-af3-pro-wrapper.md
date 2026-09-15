@@ -163,6 +163,7 @@ git commit -m "feat: support explicit portable templates"
 - Produces: `prepare_input_jobs(input_path, out_dir, **pipeline_options) -> list[str]`.
 - Produces: `run_prediction_workflow(..., run_data_pipeline: bool, run_inference: bool) -> list[str]`.
 - `opendde pred` gains Click options `-D/--run_data_pipeline` and `-P/--run_inference`, both boolean and defaulting to `true`.
+- `opendde pred` and `opendde prep` accept `--max_template_date`, defaulting to the existing OpenDDE cutoff `2021-09-30`; it affects automatic template search only.
 - `opendde prep` calls `prepare_input_jobs()` and returns/prints prepared paths.
 
 - [ ] **Step 1: Write failing workflow tests**
@@ -173,6 +174,10 @@ calling `preprocess_input`, `update_infer_json`, or `update_template_info`;
 assert both-false fails before the output directory is created. Assert the only
 JSON below the job directory is `<name>_data.json` and
 `out/.opendde_preprocessed` does not exist.
+
+Also assert that data-stage template finalisation receives the literal
+`max_template_date` value while explicit `templates` entries do not invoke the
+automatic template path.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -200,7 +205,8 @@ Close the runner in `finally`.
 - [ ] **Step 5: Add CLI switches and prep delegation**
 
 Add the two Click options to `predict` and pass them through. Keep all existing
-model/data options. Change `inputprep` to use the shared data-only function.
+model/data options. Add `--max_template_date` with default `2021-09-30` and pass
+it only to the automatic data-stage template finaliser. Change `inputprep` to use the shared data-only function.
 Keep the current lazy command registration names unchanged.
 
 - [ ] **Step 6: Run tests and verify GREEN**

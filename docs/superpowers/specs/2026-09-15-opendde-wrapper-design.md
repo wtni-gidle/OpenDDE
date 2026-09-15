@@ -18,6 +18,7 @@ switches used by the local Protenix wrapper:
 ```text
 -D, --run_data_pipeline BOOLEAN   default: true
 -P, --run_inference BOOLEAN       default: true
+--max_template_date YYYY-MM-DD    default: 2021-09-30
 ```
 
 The four combinations mean:
