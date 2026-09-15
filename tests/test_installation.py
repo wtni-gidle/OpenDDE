@@ -282,6 +282,45 @@ raise SystemExit(doctor_result.exit_code)
         self.assertIn("pred", result.stdout)
         self.assertIn("doctor", result.stdout)
 
+    def test_prediction_stage_switches_and_prep_paths(self):
+        from click.testing import CliRunner
+        from runner import batch_inference
+        from runner.cli import opendde_cli
+
+        with patch.object(
+            batch_inference,
+            "run_prediction_workflow",
+            return_value=["out/job/job_data.json"],
+        ) as workflow:
+            result = CliRunner().invoke(
+                opendde_cli,
+                [
+                    "pred",
+                    "-i",
+                    "input.json",
+                    "-D",
+                    "true",
+                    "-P",
+                    "false",
+                    "--max_template_date",
+                    "2030-02-03",
+                ],
+            )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIs(workflow.call_args.kwargs["run_data_pipeline"], True)
+        self.assertIs(workflow.call_args.kwargs["run_inference"], False)
+        self.assertEqual(workflow.call_args.kwargs["max_template_date"], "2030-02-03")
+
+        with patch.object(
+            batch_inference,
+            "prepare_input_jobs",
+            return_value=["out/job/job_data.json"],
+        ) as prepare:
+            result = CliRunner().invoke(opendde_cli, ["prep", "-i", "input.json"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("out/job/job_data.json", result.output)
+        self.assertEqual(prepare.call_args.kwargs["max_template_date"], "2021-09-30")
+
 
 if __name__ == "__main__":
     unittest.main()  # Test signed commit

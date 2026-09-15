@@ -41,6 +41,7 @@ from opendde.distributed.foldcp.config import FoldCPConfig
 from opendde.utils.logger import get_logger
 from opendde.utils.logging_config import init_logging
 from runner.cli import CONTEXT_SETTINGS, opendde_cli
+from runner.fold_input import prepare_input_jobs
 from runner.inference import (
     FoldCPJobCoordinationError,
     InferenceRunner,
@@ -86,7 +87,9 @@ def _run_on_rank0_and_broadcast(
     return cast(_T, value)
 
 
-def _discover_inference_jsons(json_file: str, out_dir: str) -> list[str]:
+def _discover_inference_jsons(
+    json_file: str, out_dir: str, *, prepared_only: bool = False
+) -> list[str]:
     """Return stable source JSON paths while excluding generated output JSONs."""
 
     input_path = Path(json_file)
@@ -99,11 +102,13 @@ def _discover_inference_jsons(json_file: str, out_dir: str) -> list[str]:
 
     output_root = Path(out_dir).resolve()
     infer_jsons = []
-    for path in input_path.rglob("*.json"):
+    for path in input_path.rglob("*_data.json" if prepared_only else "*.json"):
         if not path.is_file() or path.name.endswith(_GENERATED_INPUT_SUFFIXES):
             continue
         resolved = path.resolve()
-        if resolved == output_root or output_root in resolved.parents:
+        if not prepared_only and (
+            resolved == output_root or output_root in resolved.parents
+        ):
             continue
         infer_jsons.append(str(path))
     infer_jsons.sort()
@@ -521,7 +526,7 @@ def get_default_runner(
     return runner
 
 
-def inference_jsons(
+def run_prediction_workflow(
     json_file: str,
     out_dir: str = "./output",
     use_msa: bool = True,
@@ -560,10 +565,13 @@ def inference_jsons(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
+    run_data_pipeline: bool = True,
+    run_inference: bool = True,
+    max_template_date: str = "2021-09-30",
     device: InferenceDevice = "auto",
-) -> None:
+) -> list[str]:
     """
-    Run inference on a single JSON file or a directory of JSON files.
+    Prepare portable inputs, run inference, or perform both stages in order.
 
     Args:
         json_file (str): Path to a JSON file or directory containing JSON files.
@@ -603,14 +611,59 @@ def inference_jsons(
         foldcp_size_cp (int): Number of context-parallel ranks.
         foldcp_devices (str): Optional visible device list recorded in metrics.
         foldcp_metrics_jsonl (str): Optional JSONL path for benchmark records.
+        run_data_pipeline (bool): Prepare portable input bundles before prediction.
+        run_inference (bool): Load the model and predict the prepared inputs.
+        max_template_date (str): Cutoff for automatic data-stage template selection.
+
+    Returns:
+        list[str]: Prepared JSON paths, or the input paths in inference-only mode.
     """
+    if not run_data_pipeline and not run_inference:
+        raise ValueError("Enable at least one of run_data_pipeline or run_inference.")
+    if run_data_pipeline and foldcp_mode == "distributed":
+        raise ValueError(
+            "Prepare inputs in a single process with -D true -P false, "
+            "then use torchrun with -D false -P true."
+        )
     infer_errors = {}
     # Reject missing/malformed inputs and cross-file output collisions before
     # CUDA initialization and multi-GiB checkpoint loading. Every torchrun rank
     # performs this cheap shared-filesystem preflight; after the Runner creates
     # its control group, rank 0 still broadcasts the canonical collection.
-    preflight_jsons = _discover_inference_jsons(json_file, out_dir)
+    preflight_jsons = _discover_inference_jsons(
+        json_file, out_dir, prepared_only=not run_data_pipeline
+    )
     _validate_input_collection(preflight_jsons)
+    infer_jsons = []
+    if run_data_pipeline:
+        for path in preflight_jsons:
+            infer_jsons.extend(
+                prepare_input_jobs(
+                    path,
+                    out_dir,
+                    use_msa=use_msa,
+                    use_template=use_template,
+                    use_rna_msa=use_rna_msa,
+                    msa_server_mode=msa_server_mode,
+                    hmmsearch_binary_path=hmmsearch_binary_path,
+                    hmmbuild_binary_path=hmmbuild_binary_path,
+                    seqres_database_path=seqres_database_path,
+                    kalign_binary_path=kalign_binary_path,
+                    nhmmer_binary_path=nhmmer_binary_path,
+                    hmmalign_binary_path=hmmalign_binary_path,
+                    hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
+                    ntrna_database_path=ntrna_database_path,
+                    rfam_database_path=rfam_database_path,
+                    rna_central_database_path=rna_central_database_path,
+                    nhmmer_n_cpu=nhmmer_n_cpu,
+                    max_template_date=max_template_date,
+                )
+            )
+    else:
+        infer_jsons = preflight_jsons
+    _validate_input_collection(infer_jsons)
+    if not run_inference or not infer_jsons:
+        return infer_jsons
     runner = get_default_runner(
         seeds=seeds,
         dump_dir=out_dir,
@@ -642,8 +695,8 @@ def inference_jsons(
     try:
         world_control_group = getattr(runner, "foldcp_world_control_group", None)
         infer_jsons = _run_on_rank0_and_broadcast(
-            lambda: _discover_inference_jsons(json_file, out_dir),
-            description=f"discovering inference inputs under {json_file}",
+            lambda: infer_jsons,
+            description="sharing prepared inference inputs",
             world_control_group=world_control_group,
         )
         _run_on_rank0_and_broadcast(
@@ -655,28 +708,7 @@ def inference_jsons(
         configs = runner.configs
         for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
             try:
-                configs["input_json_path"] = _run_on_rank0_and_broadcast(
-                    lambda: preprocess_input(
-                        infer_json,
-                        out_dir=out_dir,
-                        use_msa=use_msa,
-                        use_template=use_template,
-                        use_rna_msa=use_rna_msa,
-                        msa_server_mode=msa_server_mode,
-                        hmmsearch_binary_path=hmmsearch_binary_path,
-                        hmmbuild_binary_path=hmmbuild_binary_path,
-                        seqres_database_path=seqres_database_path,
-                        nhmmer_binary_path=nhmmer_binary_path,
-                        hmmalign_binary_path=hmmalign_binary_path,
-                        hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
-                        ntrna_database_path=ntrna_database_path,
-                        rfam_database_path=rfam_database_path,
-                        rna_central_database_path=rna_central_database_path,
-                        nhmmer_n_cpu=nhmmer_n_cpu,
-                    ),
-                    description=f"preprocessing {infer_json}",
-                    world_control_group=world_control_group,
-                )
+                configs["input_json_path"] = infer_json
                 infer_predict(runner, configs)
             except FoldCPJobCoordinationError as exc:
                 infer_errors[infer_json] = str(exc)
@@ -687,6 +719,11 @@ def inference_jsons(
             raise RuntimeError(f"One or more inference inputs failed: {infer_errors}")
     finally:
         runner.close()
+    return infer_jsons
+
+
+# Keep the established Python entry point and positional parameters.
+inference_jsons = run_prediction_workflow
 
 
 @click.command(context_settings=CONTEXT_SETTINGS)
@@ -694,6 +731,22 @@ def inference_jsons(
     "-i", "--input", type=str, required=True, help="Input JSON file or directory."
 )
 @click.option("-o", "--out_dir", default="./output", type=str, help="Output directory.")
+@click.option(
+    "-D",
+    "--run_data_pipeline",
+    type=bool,
+    default=True,
+    help="Prepare portable input bundles.",
+)
+@click.option(
+    "-P", "--run_inference", type=bool, default=True, help="Run structure prediction."
+)
+@click.option(
+    "--max_template_date",
+    type=str,
+    default="2021-09-30",
+    help="Release-date cutoff for automatic template search.",
+)
 @click.option(
     "-s",
     "--seeds",
@@ -785,7 +838,7 @@ def inference_jsons(
     "--use_template",
     type=bool,
     default=False,
-    help="Use templates (requires templatesPath in input JSON).",
+    help="Use explicit templates or automatically prepare missing templates.",
 )
 @click.option(
     "--use_rna_msa",
@@ -951,6 +1004,9 @@ def predict(
     foldcp_size_cp: int = 1,
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
+    run_data_pipeline: bool = True,
+    run_inference: bool = True,
+    max_template_date: str = "2021-09-30",
 ) -> None:
     """
     Run predictions with OpenDDE using various input formats.
@@ -1029,11 +1085,9 @@ def predict(
         )
         logger.info("=" * 50)
         logger.info(
-            "Using templates for inference. Template files should have "
-            ".hhr or .a3m extensions and be specified in the JSON file.\n"
-            "Example: /path/to/template.hhr or /path/to/template.a3m\n"
-            "Note: Inference will proceed with automatic template search "
-            "if none are provided and use_template is True."
+            "Using templates for inference. Explicit templates are read from "
+            "the input JSON; missing templates are searched only when the "
+            "data pipeline is enabled."
         )
         logger.info("=" * 50)
 
@@ -1046,15 +1100,14 @@ def predict(
             "Using RNA MSA for inference. RNA MSA files should have .a3m "
             "extension and be specified in the JSON file.\n"
             "Example: /path/to/rna_msa.a3m\n"
-            "Note: Inference will proceed with automatic RNA MSA search "
-            "if none are provided and use_rna_msa is True."
+            "Missing RNA MSAs are searched only when the data pipeline is enabled."
         )
         logger.info("=" * 50)
 
     if use_tfg_guidance:
         logger.info("Using Training-Free Guidance (TFG) for inference.")
 
-    inference_jsons(
+    run_prediction_workflow(
         input,
         out_dir,
         use_msa,
@@ -1093,6 +1146,9 @@ def predict(
         foldcp_size_cp=foldcp_size_cp,
         foldcp_devices=foldcp_devices,
         foldcp_metrics_jsonl=foldcp_metrics_jsonl,
+        run_data_pipeline=run_data_pipeline,
+        run_inference=run_inference,
+        max_template_date=max_template_date,
     )
 
 
@@ -1347,14 +1403,20 @@ def msatemplate(
     )
 
 
-# The new inputprep command calls the RNA MSA process after the MSA template process finishes
+# Share the same data stage as pred without constructing an inference runner.
 @click.command(context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--max_template_date",
+    type=str,
+    default="2021-09-30",
+    help="Release-date cutoff for automatic template search.",
+)
 @click.option(
     "-i",
     "--input",
     type=str,
     required=True,
-    help="JSON file to update with RNA MSA (supports 'json' format only).",
+    help="Input JSON file to prepare as portable per-job bundles.",
 )
 @click.option(
     "-o",
@@ -1445,7 +1507,8 @@ def inputprep(
     rna_central_database_path: Optional[str],
     nhmmer_n_cpu: Optional[int],
     msa_server_mode: Optional[str],
-) -> str:
+    max_template_date: str = "2021-09-30",
+) -> list[str]:
     """
     Perform MSA search, template search, and RNA MSA search sequentially.
 
@@ -1465,18 +1528,12 @@ def inputprep(
         msa_server_mode (Optional[str]): Deprecated compatibility option; ignored.
 
     Returns:
-        str: Final updated JSON file path with all search information.
+        list[str]: Prepared JSON paths with portable search resources.
     """
     logger.info(f"Run inputprep with input={input}, out_dir={out_dir}")
 
-    if not input.endswith(".json"):
-        raise RuntimeError(f"inputprep only supports `json` format, but got: {input}")
-
-    if not os.path.exists(input):
-        raise RuntimeError(f"input file {input} does not exist")
-
-    return preprocess_input(
-        input_json=input,
+    paths = prepare_input_jobs(
+        input_path=input,
         out_dir=out_dir,
         use_msa=True,
         use_template=True,
@@ -1492,7 +1549,11 @@ def inputprep(
         rfam_database_path=rfam_database_path,
         rna_central_database_path=rna_central_database_path,
         nhmmer_n_cpu=nhmmer_n_cpu,
+        max_template_date=max_template_date,
     )
+    for path in paths:
+        click.echo(path)
+    return paths
 
 
 if __name__ == "__main__":

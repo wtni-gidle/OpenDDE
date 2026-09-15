@@ -24,10 +24,10 @@ _RUNTIME_COMMANDS = {
     ),
     "msa": ("msa", "Run protein MSA search."),
     "mt": ("msatemplate", "Run protein MSA and template search."),
-    "pred": ("predict", "Run OpenDDE structure prediction."),
+    "pred": ("predict", "Prepare inputs and run OpenDDE structure prediction."),
     "prep": (
         "inputprep",
-        "Prepare MSA, template, and RNA MSA input features.",
+        "Write portable MSA, template, and RNA MSA input bundles.",
     ),
 }
 _COMMAND_HELP = {

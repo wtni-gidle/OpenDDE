@@ -14,6 +14,7 @@ from contextlib import ExitStack, nullcontext
 from datetime import timedelta
 from os.path import exists as opexists
 from os.path import join as opjoin
+from pathlib import Path
 from typing import Any, cast
 
 import torch
@@ -70,6 +71,7 @@ from opendde.utils.torch_utils import (
     to_device,
 )
 from runner.dumper import DataDumper
+from runner.fold_input import resolve_job_paths
 
 logger = logging.getLogger(__name__)
 
@@ -1601,6 +1603,8 @@ def _infer_predict_impl(
         configs.input_json_path,
         world_control_group,
     )
+    input_path = Path(configs.input_json_path).resolve()
+    json_data = [resolve_job_paths(job, input_path) for job in json_data]
 
     # Seed precedence is resolved independently for every JSON job:
     # command line > that job's modelSeeds > synchronized random seed.

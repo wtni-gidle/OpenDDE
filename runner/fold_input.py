@@ -9,6 +9,7 @@ import json
 from os import PathLike
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any
 
 from opendde.data.inference.input_validation import validate_inference_jobs
@@ -150,3 +151,107 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
     with prepared_path.open("w", encoding="utf-8") as handle:
         json.dump([prepared], handle, indent=2)
     return str(prepared_path)
+
+
+def prepare_input_jobs(
+    input_path: str,
+    out_dir: str,
+    *,
+    use_msa: bool = True,
+    use_template: bool = False,
+    use_rna_msa: bool = False,
+    msa_server_mode: str | None = None,
+    hmmsearch_binary_path: str | None = None,
+    hmmbuild_binary_path: str | None = None,
+    seqres_database_path: str | None = None,
+    kalign_binary_path: str | None = None,
+    nhmmer_binary_path: str | None = None,
+    hmmalign_binary_path: str | None = None,
+    hmmbuild_rna_binary_path: str | None = None,
+    ntrna_database_path: str | None = None,
+    rfam_database_path: str | None = None,
+    rna_central_database_path: str | None = None,
+    nhmmer_n_cpu: int | None = None,
+    max_template_date: str = "2021-09-30",
+    template_featurizer: Any = None,
+) -> list[str]:
+    """Run searches in memory and publish one portable bundle per input job."""
+    from opendde.config.data import data_configs
+    from runner.msa_search import (
+        convert_one_json_dict,
+        need_msa_search,
+        update_seq_msa,
+    )
+    from runner.rna_msa_search import update_rna_msa_info
+    from runner.template_search import TemplateHitFeaturizer, update_template_info
+
+    loaded_jobs = load_input_jobs(input_path)
+    prepared_paths = []
+    with tempfile.TemporaryDirectory(prefix="opendde-data-") as scratch_dir:
+        for source_path, loaded_job in loaded_jobs:
+            job = deepcopy(loaded_job)
+            scratch = Path(scratch_dir) / job["name"]
+            if use_msa:
+                job, _ = convert_one_json_dict(job)
+                job = resolve_job_paths(job, source_path)
+                if need_msa_search(job):
+                    update_seq_msa(job, str(scratch / "msa"), mode=msa_server_mode)
+
+            automatic_chains = (
+                [
+                    sequence["proteinChain"]
+                    for sequence in job.get("sequences", [])
+                    if "proteinChain" in sequence
+                    and sequence["proteinChain"].get("templates") is None
+                ]
+                if use_template
+                else []
+            )
+            if automatic_chains:
+                # The search/finalizer writes next to its source MSA or hits.
+                # Stage those sources so user inputs remain read-only.
+                for index, chain in enumerate(automatic_chains):
+                    chain_dir = scratch / "templates" / str(index)
+                    chain_dir.mkdir(parents=True, exist_ok=True)
+                    for field in ("pairedMsaPath", "unpairedMsaPath", "templatesPath"):
+                        source = chain.get(field)
+                        if isinstance(source, str) and Path(source).is_file():
+                            destination = chain_dir / f"{field}{Path(source).suffix}"
+                            shutil.copyfile(source, destination)
+                            chain[field] = str(destination)
+                if template_featurizer is None:
+                    template_config = data_configs["template"]
+                    template_featurizer = TemplateHitFeaturizer(
+                        mmcif_dir=template_config["prot_template_mmcif_dir"],
+                        template_cache_dir=str(scratch / "template_cache"),
+                        max_hits=4,
+                        kalign_binary_path=kalign_binary_path
+                        or template_config["kalign_binary_path"],
+                        release_dates_path=template_config["release_dates_path"],
+                        obsolete_pdbs_path=template_config["obsolete_pdbs_path"],
+                        _max_template_candidates_num=20,
+                        fetch_remote=template_config["fetch_remote"],
+                    )
+                update_template_info(
+                    [job],
+                    hmmsearch_binary_path=hmmsearch_binary_path,
+                    hmmbuild_binary_path=hmmbuild_binary_path,
+                    seqres_database_path=seqres_database_path,
+                    template_featurizer=template_featurizer,
+                    max_template_date=max_template_date,
+                )
+            if use_rna_msa:
+                update_rna_msa_info(
+                    [job],
+                    out_dir=scratch_dir,
+                    nhmmer_binary_path=nhmmer_binary_path,
+                    hmmalign_binary_path=hmmalign_binary_path,
+                    hmmbuild_binary_path=hmmbuild_rna_binary_path
+                    or hmmbuild_binary_path,
+                    ntrna_database_path=ntrna_database_path,
+                    rfam_database_path=rfam_database_path,
+                    rna_central_database_path=rna_central_database_path,
+                    nhmmer_n_cpu=nhmmer_n_cpu,
+                )
+            prepared_paths.append(write_prepared_job(job, out_dir))
+    return prepared_paths
