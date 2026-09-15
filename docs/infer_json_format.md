@@ -89,8 +89,8 @@ Each explicit entry requires `mmcifPath`, `queryIndices`, and `templateIndices`.
 The two index lists have equal length and contain zero-based residue indices in
 the query and template chain sequences, respectively. An mmCIF with one protein
 chain needs no chain selector; for a multi-protein-chain mmCIF, supply `chainId`
-for the chosen chain. Automatically prepared templates retain that selector
-when needed.
+using the chosen chain's author ID (`auth_asym_id`, not `label_asym_id`).
+Automatically prepared templates retain that selector when needed.
 
 Automatic selection respects `--max_template_date YYYY-MM-DD` (default
 `2021-09-30`). Explicit templates bypass the release-date cutoff, matching AF3

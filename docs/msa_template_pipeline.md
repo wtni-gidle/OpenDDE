@@ -140,8 +140,9 @@ automatic selection during the data stage. `templates: []` disables templates
 for that protein. A non-empty list uses the supplied mmCIFs and mappings without
 automatic search. Each entry requires `mmcifPath`, `queryIndices`, and
 `templateIndices`, with equal-length lists of zero-based residue indices. For
-an mmCIF with multiple protein chains, also supply `chainId` for the selected
-chain; it is unnecessary for a single-protein-chain mmCIF.
+an mmCIF with multiple protein chains, also supply `chainId` using the selected
+chain's author ID (`auth_asym_id`, not `label_asym_id`); it is unnecessary for a
+single-protein-chain mmCIF.
 
 Run automatic preparation with explicit tools/database if needed:
 
