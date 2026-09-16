@@ -72,6 +72,7 @@ from opendde.utils.torch_utils import (
 )
 from runner.dumper import DataDumper
 from runner.fold_input import resolve_job_paths
+from runner.prediction_resume import incomplete_job_seed_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -1564,6 +1565,14 @@ def _sampler_owns_inference_sample(sampler: Any, data: Mapping[str, Any]) -> boo
     )
 
 
+def _config_get(configs: Any, key: str, default: Any) -> Any:
+    """Read ConfigDict-style or attribute-only embedded configurations."""
+    getter = getattr(configs, "get", None)
+    if callable(getter):
+        return getter(key, default)
+    return getattr(configs, key, default)
+
+
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     """Run inference with CPU control planes for job/error coordination."""
     control_group = getattr(runner, "foldcp_control_group", None)
@@ -1607,6 +1616,15 @@ def _infer_predict_impl(
     input_path = Path(configs.input_json_path).resolve()
     json_data = [resolve_job_paths(job, input_path) for job in json_data]
 
+    if not _config_get(configs, "write_now", True) and not _config_get(
+        configs, "write_now_warning_emitted", False
+    ):
+        logger.warning(
+            "write_now=False was requested, but OpenDDE always writes each "
+            "prediction synchronously; synchronous writing remains enabled."
+        )
+        setattr(configs, "write_now_warning_emitted", True)
+
     # Seed precedence is resolved independently for every JSON job:
     # command line > that job's modelSeeds > synchronized random seed.
     cli_seeds = [int(seed) for seed in configs.seeds] if configs.seeds else None
@@ -1615,6 +1633,30 @@ def _infer_predict_impl(
         cli_seeds,
         world_control_group,
     )
+    if _config_get(configs, "skip", False):
+        num_samples = int(configs.sample_diffusion.N_sample) * int(
+            getattr(configs.model, "N_model_seed", 1)
+        )
+        requested_schedule = job_seed_schedule
+        job_seed_schedule = incomplete_job_seed_schedule(
+            configs.dump_dir,
+            json_data,
+            requested_schedule,
+            num_samples,
+            need_atom_confidence=bool(
+                _config_get(configs, "need_atom_confidence", False)
+            ),
+        )
+        if not any(job_seed_schedule):
+            logger.info(
+                "Skipping inference: all requested job/seed outputs are complete."
+            )
+            return
+        if job_seed_schedule != requested_schedule:
+            logger.info(
+                "Incomplete job/seed schedule selected for inference: %s",
+                job_seed_schedule,
+            )
     seeds = list(
         dict.fromkeys(seed for job_seeds in job_seed_schedule for seed in job_seeds)
     )

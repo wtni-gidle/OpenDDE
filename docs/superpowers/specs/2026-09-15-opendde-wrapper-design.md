@@ -143,8 +143,11 @@ No legacy prediction tree is written in parallel.
 - Existing `templatesPath` A3M/HHR input remains supported as a legacy direct
   inference path, but the wrapper data stage finalises it into `templates`.
 - Model code is not modified.
-- No skip/resume engine, input hashing, archive format matrix, sidecar schema,
-  recursive project manager, or silent job-name sanitisation is added in this
-  first wrapper.
+- `--skip true` provides only canonical per-job/seed/sample completeness checks;
+  there is no input/model hashing, resume database, locking, stale-output
+  cleanup, archive format matrix, sidecar schema, recursive project manager, or
+  silent job-name sanitisation.
+- `--write_now` is accepted for AF3 Pro compatibility, but OpenDDE always writes
+  each prediction synchronously and does not implement delayed caching.
 - Unsafe or duplicate names continue to use the validation already present in
   OpenDDE; the wrapper adds no second name-validation subsystem.

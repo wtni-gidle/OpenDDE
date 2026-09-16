@@ -48,6 +48,7 @@ from runner.inference import (
     infer_predict,
 )
 from runner.msa_search import msa_search, update_infer_json
+from runner.prediction_resume import incomplete_job_seed_schedule
 from runner.rna_msa_search import update_rna_msa_info
 from runner.template_search import update_template_info
 
@@ -133,6 +134,51 @@ def _validate_input_collection(paths: list[str]) -> None:
                     "the outputs would collide."
                 )
             owners[name] = path
+
+
+def _all_requested_outputs_complete(
+    paths: list[str],
+    out_dir: str,
+    seeds: Optional[list[int]],
+    n_sample: int,
+    *,
+    need_atom_confidence: bool,
+) -> bool:
+    """Check deterministic requested schedules before loading the model."""
+    cli_seeds = (
+        [validate_inference_seed(seed, location="seeds") for seed in seeds]
+        if seeds
+        else None
+    )
+    for path in paths:
+        with open(path, "r", encoding="utf-8") as handle:
+            jobs = validate_inference_jobs(json.load(handle))
+        schedule: list[list[int]] = []
+        for job in jobs:
+            configured = cli_seeds if cli_seeds is not None else job.get("modelSeeds")
+            if not configured:
+                # A random fallback seed is synchronized only after Runner
+                # initialization, so it cannot participate in this early exit.
+                return False
+            schedule.append(
+                [
+                    validate_inference_seed(
+                        seed,
+                        location=f"seed for job {job['name']!r}",
+                    )
+                    for seed in configured
+                ]
+            )
+        incomplete = incomplete_job_seed_schedule(
+            out_dir,
+            jobs,
+            schedule,
+            n_sample,
+            need_atom_confidence=need_atom_confidence,
+        )
+        if any(incomplete_seeds for incomplete_seeds in incomplete):
+            return False
+    return True
 
 
 def preprocess_input(
@@ -394,6 +440,8 @@ def get_default_runner(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
+    skip: bool = False,
+    write_now: bool = True,
     device: InferenceDevice = "auto",
 ) -> InferenceRunner:
     """
@@ -418,6 +466,8 @@ def get_default_runner(
         deterministic (bool): Whether to enable deterministic PyTorch algorithms.
         use_template (bool): Whether to use templates.
         use_rna_msa (bool): Whether to use RNA MSA.
+        skip (bool): Skip seeds whose canonical outputs are already complete.
+        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
         foldcp_mode (str): Fold-CP execution mode.
@@ -489,6 +539,9 @@ def get_default_runner(
     configs.use_template = use_template
     configs.use_rna_msa = use_rna_msa
     configs.need_atom_confidence = need_atom_confidence
+    configs.skip = skip
+    configs.write_now = write_now
+    configs.write_now_warning_emitted = False
     configs.sample_diffusion.guidance["enable"] = use_tfg_guidance
     # Runtime assignment intentionally stays mutable for legacy callers, so
     # rebuild the typed view once before any filesystem, process-group, or model
@@ -568,6 +621,8 @@ def run_prediction_workflow(
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     max_template_date: str = "2021-09-30",
+    skip: bool = False,
+    write_now: bool = True,
     device: InferenceDevice = "auto",
 ) -> list[str]:
     """
@@ -594,6 +649,8 @@ def run_prediction_workflow(
         use_template (bool): Whether to use templates.
         use_rna_msa (bool): Whether to use RNA MSA.
         msa_server_mode (Optional[str]): Deprecated compatibility argument; ignored.
+        skip (bool): Skip seeds whose canonical outputs are already complete.
+        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -625,6 +682,8 @@ def run_prediction_workflow(
             "Prepare inputs in a single process with -D true -P false, "
             "then use torchrun with -D false -P true."
         )
+    if n_sample < 1:
+        raise ValueError(f"--sample must be at least 1, got {n_sample}.")
     infer_errors = {}
     # Reject missing/malformed inputs and cross-file output collisions before
     # CUDA initialization and multi-GiB checkpoint loading. Every torchrun rank
@@ -664,6 +723,22 @@ def run_prediction_workflow(
     _validate_input_collection(infer_jsons)
     if not run_inference or not infer_jsons:
         return infer_jsons
+    write_now_warning_emitted = False
+    if not write_now:
+        logger.warning(
+            "write_now=False was requested, but OpenDDE always writes each "
+            "prediction synchronously; synchronous writing remains enabled."
+        )
+        write_now_warning_emitted = True
+    if skip and _all_requested_outputs_complete(
+        infer_jsons,
+        out_dir,
+        seeds,
+        n_sample,
+        need_atom_confidence=need_atom_confidence,
+    ):
+        logger.info("Skipping inference: all requested job/seed outputs are complete.")
+        return infer_jsons
     runner = get_default_runner(
         seeds=seeds,
         dump_dir=out_dir,
@@ -684,6 +759,8 @@ def run_prediction_workflow(
         use_template=use_template,
         use_rna_msa=use_rna_msa,
         need_atom_confidence=need_atom_confidence,
+        skip=skip,
+        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         foldcp_mode=foldcp_mode,
@@ -706,6 +783,7 @@ def run_prediction_workflow(
         )
         logger.info(f"Will infer with {len(infer_jsons)} jsons")
         configs = runner.configs
+        configs["write_now_warning_emitted"] = write_now_warning_emitted
         for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
             try:
                 configs["input_json_path"] = infer_json
@@ -860,6 +938,18 @@ inference_jsons = run_prediction_workflow
     help="Whether to compute atom-level confidence scores.",
 )
 @click.option(
+    "--skip",
+    type=bool,
+    default=False,
+    help="Skip job seeds whose canonical prediction outputs are complete.",
+)
+@click.option(
+    "--write_now",
+    type=bool,
+    default=True,
+    help="Compatibility flag; OpenDDE always writes predictions synchronously.",
+)
+@click.option(
     "--foldcp_mode",
     type=click.Choice(["single", "distributed"]),
     default="single",
@@ -987,6 +1077,8 @@ def predict(
     use_rna_msa: bool,
     msa_server_mode: Optional[str],
     need_atom_confidence: bool,
+    skip: bool,
+    write_now: bool,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
@@ -1035,6 +1127,8 @@ def predict(
         use_rna_msa (bool): Use RNA MSA.
         msa_server_mode (Optional[str]): Deprecated compatibility option; ignored.
         need_atom_confidence (bool): Compute atom-level confidence scores.
+        skip (bool): Skip seeds whose canonical outputs are already complete.
+        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -1129,6 +1223,8 @@ def predict(
         use_rna_msa=use_rna_msa,
         msa_server_mode=msa_server_mode,
         need_atom_confidence=need_atom_confidence,
+        skip=skip,
+        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,

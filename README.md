@@ -211,6 +211,10 @@ output/tiny/
 
 Sample numbers are original diffusion sample indices, not confidence ranks.
 `full_data/` is written only with `--need_atom_confidence true` (the default).
+Use `--skip true` to skip job/seed combinations whose required canonical files
+are present and readable; incomplete or corrupt seeds are recomputed. The
+`--write_now` compatibility option defaults to `true`; OpenDDE always writes
+each prediction synchronously, including when `false` is supplied.
 
 For production runs, enable the preprocessing features you need, for example
 `--use_msa true`, `--use_template true`, or `--use_rna_msa true`. Those paths may

@@ -382,6 +382,18 @@ are part of every filename. `full_data/` is written only with
 where the data stage wrote them, even when inference uses a different output
 directory.
 
+For lightweight resume, pass `--skip true`. OpenDDE checks each requested
+job/seed and original sample index: the model CIF must be non-empty, summary
+confidence must be a non-empty JSON object, and `full_data` must also be a
+non-empty JSON object when atom confidence is enabled. Complete seeds are
+skipped and incomplete or corrupt seeds are recomputed in request order. The
+default `--skip false` always recomputes and does not inspect existing prediction
+outputs; data-only runs never inspect them either.
+
+`--write_now` is an AF3 Pro compatibility flag. OpenDDE already writes every
+job/seed synchronously. Its default is `true`; `false` is accepted with one
+warning and does not enable delayed caching.
+
 ## Common flags
 
 | Flag | Meaning |
@@ -396,6 +408,8 @@ directory.
 | `--max_template_date` | Automatic data-stage template cutoff, default `2021-09-30`. Explicit templates bypass it. |
 | `--use_rna_msa` | Use/generate RNA MSA features; requires `--use_msa true`. |
 | `--need_atom_confidence` | Write detailed confidence JSONs in `full_data/`; default `true`. |
+| `--skip` | Skip complete job/seed outputs; boolean, default `false`. |
+| `--write_now` | Compatibility flag, default `true`; writes remain synchronous when set to `false`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |
 | `--foldcp_mode` | `single` or `distributed`; use `distributed` with `torchrun` for multi-GPU Fold-CP inference. |
 | `--foldcp_size_dp` | Compatibility option; only `1` is supported. Runtime `2 x 2` topology is not maintained. |
