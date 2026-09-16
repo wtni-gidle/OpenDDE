@@ -496,7 +496,7 @@ def get_default_runner(
     configs = OpenDDEConfig.model_validate(configs.model_dump())
     validate_inference_schedule(configs)
 
-    if kalign_binary_path is not None or use_template:
+    if kalign_binary_path is not None:
         configs.data.template.kalign_binary_path = kalign.resolve_kalign_binary(
             kalign_binary_path
         )

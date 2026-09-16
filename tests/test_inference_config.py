@@ -488,6 +488,21 @@ def test_foldcp_config_validation_is_independent_of_process_environment(monkeypa
     assert FoldCPConfig().validate().mode == "single"
 
 
+def test_get_default_runner_defers_default_kalign_resolution(monkeypatch):
+    from runner import batch_inference
+
+    class DummyRunner:
+        def __init__(self, cfg, *, foldcp_config=None):
+            self.configs = cfg
+
+    monkeypatch.setattr(batch_inference, "InferenceRunner", DummyRunner)
+    monkeypatch.setattr(batch_inference.kalign.shutil, "which", lambda command: None)
+
+    runner = batch_inference.get_default_runner(use_template=True)
+
+    assert runner.configs.data.template.kalign_binary_path == "kalign"
+
+
 def test_get_default_runner_uses_shared_kalign_resolver(monkeypatch):
     from runner import batch_inference
 
