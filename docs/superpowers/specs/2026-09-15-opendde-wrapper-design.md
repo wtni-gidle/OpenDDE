@@ -146,7 +146,10 @@ No legacy prediction tree is written in parallel.
 - `--skip true` provides only canonical per-job/seed/sample completeness checks;
   there is no input/model hashing, resume database, locking, stale-output
   cleanup, archive format matrix, sidecar schema, recursive project manager, or
-  silent job-name sanitisation.
+  silent job-name sanitisation. Single-device all-complete checks run before
+  model construction. Fold-CP checks only after its existing Gloo control group
+  exists, with rank 0 broadcasting the schedule to keep all ranks in the same
+  collective control flow.
 - `--write_now` is accepted for AF3 Pro compatibility, but OpenDDE always writes
   each prediction synchronously and does not implement delayed caching.
 - Unsafe or duplicate names continue to use the validation already present in

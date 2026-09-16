@@ -730,12 +730,16 @@ def run_prediction_workflow(
             "prediction synchronously; synchronous writing remains enabled."
         )
         write_now_warning_emitted = True
-    if skip and _all_requested_outputs_complete(
-        infer_jsons,
-        out_dir,
-        seeds,
-        n_sample,
-        need_atom_confidence=need_atom_confidence,
+    if (
+        skip
+        and foldcp_mode == "single"
+        and _all_requested_outputs_complete(
+            infer_jsons,
+            out_dir,
+            seeds,
+            n_sample,
+            need_atom_confidence=need_atom_confidence,
+        )
     ):
         logger.info("Skipping inference: all requested job/seed outputs are complete.")
         return infer_jsons

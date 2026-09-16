@@ -915,6 +915,51 @@ def _resolve_job_seed_schedule(
     return cast(list[list[int]], value)
 
 
+def _incomplete_job_seed_schedule_synchronized(
+    output_dir: str | Path,
+    jobs: list[dict[str, Any]],
+    job_seed_schedule: list[list[int]],
+    num_samples: int,
+    *,
+    need_atom_confidence: bool,
+    world_control_group: dist.ProcessGroup | None = None,
+) -> list[list[int]]:
+    """Check resume outputs once and synchronize the selected job/seed schedule."""
+    is_distributed = dist.is_available() and dist.is_initialized()
+    if not is_distributed:
+        return incomplete_job_seed_schedule(
+            output_dir,
+            jobs,
+            job_seed_schedule,
+            num_samples,
+            need_atom_confidence=need_atom_confidence,
+        )
+
+    payload: list[tuple[bool, object] | None] = [None]
+    if dist.get_rank() == 0:
+        try:
+            payload[0] = (
+                True,
+                incomplete_job_seed_schedule(
+                    output_dir,
+                    jobs,
+                    job_seed_schedule,
+                    num_samples,
+                    need_atom_confidence=need_atom_confidence,
+                ),
+            )
+        except Exception as exc:
+            payload[0] = (False, f"{type(exc).__name__}: {exc}")
+    _broadcast_object_list(payload, src=0, group=world_control_group)
+    result = payload[0]
+    if result is None:
+        raise RuntimeError("Rank 0 returned no prediction resume schedule status.")
+    succeeded, value = result
+    if not succeeded:
+        raise ValueError(f"Invalid prediction resume schedule: {value}")
+    return cast(list[list[int]], value)
+
+
 def _download_inference_assets(
     configs: OpenDDEConfig,
     world_control_group: dist.ProcessGroup | None = None,
@@ -1638,7 +1683,7 @@ def _infer_predict_impl(
             getattr(configs.model, "N_model_seed", 1)
         )
         requested_schedule = job_seed_schedule
-        job_seed_schedule = incomplete_job_seed_schedule(
+        job_seed_schedule = _incomplete_job_seed_schedule_synchronized(
             configs.dump_dir,
             json_data,
             requested_schedule,
@@ -1646,6 +1691,7 @@ def _infer_predict_impl(
             need_atom_confidence=bool(
                 _config_get(configs, "need_atom_confidence", False)
             ),
+            world_control_group=world_control_group,
         )
         if not any(job_seed_schedule):
             logger.info(

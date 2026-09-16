@@ -390,6 +390,11 @@ skipped and incomplete or corrupt seeds are recomputed in request order. The
 default `--skip false` always recomputes and does not inspect existing prediction
 outputs; data-only runs never inspect them either.
 
+Single-device inference can take the all-complete fast path before constructing
+the model runner. Fold-CP first constructs its runner and Gloo control group;
+rank 0 then checks completeness and broadcasts the selected schedule so every
+rank collectively skips or runs the same work.
+
 `--write_now` is an AF3 Pro compatibility flag. OpenDDE already writes every
 job/seed synchronously. Its default is `true`; `false` is accepted with one
 warning and does not enable delayed caching.

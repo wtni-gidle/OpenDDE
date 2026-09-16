@@ -144,9 +144,15 @@ def test_all_complete_skips_before_runner_initialization(tmp_path, monkeypatch):
     [
         {"run_data_pipeline": False, "run_inference": True, "skip": False},
         {"run_data_pipeline": True, "run_inference": False, "skip": True},
+        {
+            "run_data_pipeline": False,
+            "run_inference": True,
+            "skip": True,
+            "foldcp_mode": "distributed",
+        },
     ],
 )
-def test_skip_false_and_data_only_do_not_inspect_prediction_outputs(
+def test_workflows_without_local_resume_precheck_do_not_inspect_outputs(
     tmp_path, monkeypatch, workflow_args
 ):
     source = _write_input(
@@ -172,6 +178,67 @@ def test_skip_false_and_data_only_do_not_inspect_prediction_outputs(
     monkeypatch.setattr(batch_inference, "infer_predict", lambda *_args: None)
 
     batch_inference.run_prediction_workflow(str(source), str(output), **workflow_args)
+
+
+def test_distributed_resume_schedule_is_checked_only_on_rank0(tmp_path, monkeypatch):
+    control_group = object()
+    broadcasts = []
+    monkeypatch.setattr(inference.dist, "is_available", lambda: True)
+    monkeypatch.setattr(inference.dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(inference.dist, "get_rank", lambda: 1)
+    monkeypatch.setattr(
+        inference,
+        "incomplete_job_seed_schedule",
+        lambda *_args, **_kwargs: pytest.fail(
+            "nonzero rank must not inspect prediction outputs"
+        ),
+    )
+
+    def broadcast(payload, *, src, group):
+        broadcasts.append((src, group))
+        payload[0] = (True, [[8]])
+
+    monkeypatch.setattr(inference, "_broadcast_object_list", broadcast)
+
+    assert inference._incomplete_job_seed_schedule_synchronized(
+        tmp_path,
+        [{"name": "job"}],
+        [[7, 8]],
+        1,
+        need_atom_confidence=False,
+        world_control_group=control_group,
+    ) == [[8]]
+    assert broadcasts == [(0, control_group)]
+
+
+def test_distributed_resume_schedule_broadcasts_rank0_failure(tmp_path, monkeypatch):
+    control_group = object()
+    broadcasts = []
+    monkeypatch.setattr(inference.dist, "is_available", lambda: True)
+    monkeypatch.setattr(inference.dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(inference.dist, "get_rank", lambda: 0)
+    monkeypatch.setattr(
+        inference,
+        "incomplete_job_seed_schedule",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("storage offline")),
+    )
+
+    def broadcast(payload, *, src, group):
+        broadcasts.append((payload[0], src, group))
+
+    monkeypatch.setattr(inference, "_broadcast_object_list", broadcast)
+
+    with pytest.raises(ValueError, match="Invalid prediction resume schedule"):
+        inference._incomplete_job_seed_schedule_synchronized(
+            tmp_path,
+            [{"name": "job"}],
+            [[7]],
+            1,
+            need_atom_confidence=False,
+            world_control_group=control_group,
+        )
+
+    assert broadcasts == [((False, "OSError: storage offline"), 0, control_group)]
 
 
 def test_write_now_false_warns_once_and_still_allows_pre_runner_skip(
