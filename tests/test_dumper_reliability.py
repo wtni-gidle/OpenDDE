@@ -155,6 +155,21 @@ def test_confidence_serialization_does_not_mutate_prediction_tree():
     np.testing.assert_allclose(cleaned["values"], np.array([2.35]))
 
 
+def test_confidence_cleaning_preserves_bool_and_integer_dtypes():
+    cleaned = get_clean_full_confidence(
+        {
+            "token_has_frame": torch.tensor([True, False]),
+            "token_asym_id": torch.tensor([1, 2], dtype=torch.int64),
+            "scores": torch.tensor([1.234], dtype=torch.bfloat16),
+        }
+    )
+
+    assert cleaned["token_has_frame"].dtype == np.bool_
+    assert cleaned["token_asym_id"].dtype == np.int64
+    assert cleaned["scores"].dtype == np.float32
+    np.testing.assert_allclose(cleaned["scores"], [1.23])
+
+
 @pytest.mark.parametrize(
     ("group_name", "seed", "message"),
     [
@@ -212,3 +227,122 @@ def test_output_directories_keep_umask_permissions(tmp_path, atom_array):
     for directory in ("models", "summary_confidences", "full_data"):
         mode = stat.S_IMODE((tmp_path / "job" / directory).stat().st_mode)
         assert mode == 0o755
+
+
+def test_compressed_full_confidence_writes_npz_and_removes_stale_json(
+    tmp_path, atom_array
+):
+    full_data_dir = tmp_path / "job" / "full_data"
+    full_data_dir.mkdir(parents=True)
+    stale_json = full_data_dir / "seed-7_sample-0_full_data.json"
+    stale_json.write_text('{"stale": true}', encoding="utf-8")
+    prediction = _minimal_prediction()
+    prediction["full_data"] = [
+        {
+            "atom_plddt": torch.tensor([0.8765]),
+            "token_pair_pae": np.array([[0.0, 0.254]]),
+            "atom_coordinate": torch.ones(1, 3),
+            "atom_is_polymer": torch.ones(1, dtype=torch.bool),
+        }
+    ]
+
+    DataDumper(
+        str(tmp_path),
+        need_atom_confidence=True,
+        compress_full_confidence=True,
+    ).dump(
+        group_name="",
+        pdb_id="job",
+        seed=7,
+        pred_dict=prediction,
+        atom_array=atom_array,
+        entity_poly_type={"1": "polypeptide(L)"},
+    )
+
+    archive_path = full_data_dir / "seed-7_sample-0_full_data.npz"
+    assert archive_path.is_file()
+    assert not stale_json.exists()
+    with np.load(archive_path, allow_pickle=False) as archive:
+        assert set(archive.files) == {"atom_plddt", "token_pair_pae"}
+        np.testing.assert_allclose(archive["atom_plddt"], [0.88])
+        np.testing.assert_allclose(archive["token_pair_pae"], [[0.0, 0.25]])
+        assert all(not archive[key].dtype.hasobject for key in archive.files)
+
+
+def test_json_full_confidence_removes_stale_npz_after_success(tmp_path, atom_array):
+    full_data_dir = tmp_path / "job" / "full_data"
+    full_data_dir.mkdir(parents=True)
+    stale_npz = full_data_dir / "seed-9_sample-0_full_data.npz"
+    np.savez_compressed(stale_npz, stale=np.array([1]))
+
+    DataDumper(
+        str(tmp_path),
+        need_atom_confidence=True,
+        compress_full_confidence=False,
+    ).dump(
+        group_name="",
+        pdb_id="job",
+        seed=9,
+        pred_dict={
+            **_minimal_prediction(),
+            "full_data": [{"atom_plddt": torch.tensor([0.5])}],
+        },
+        atom_array=atom_array,
+        entity_poly_type={"1": "polypeptide(L)"},
+    )
+
+    assert json.loads(
+        (full_data_dir / "seed-9_sample-0_full_data.json").read_text()
+    ) == {"atom_plddt": [0.5]}
+    assert not stale_npz.exists()
+
+
+def test_disabling_full_confidence_removes_stale_formats(tmp_path, atom_array):
+    full_data_dir = tmp_path / "job" / "full_data"
+    full_data_dir.mkdir(parents=True)
+    json_path = full_data_dir / "seed-4_sample-0_full_data.json"
+    npz_path = full_data_dir / "seed-4_sample-0_full_data.npz"
+    json_path.write_text('{"stale": true}', encoding="utf-8")
+    np.savez_compressed(npz_path, stale=np.array([1]))
+
+    DataDumper(str(tmp_path), need_atom_confidence=False).dump(
+        group_name="",
+        pdb_id="job",
+        seed=4,
+        pred_dict=_minimal_prediction(),
+        atom_array=atom_array,
+        entity_poly_type={"1": "polypeptide(L)"},
+    )
+
+    assert not json_path.exists()
+    assert not npz_path.exists()
+
+
+def test_failed_npz_publication_preserves_existing_json(
+    tmp_path, atom_array, monkeypatch
+):
+    full_data_dir = tmp_path / "job" / "full_data"
+    full_data_dir.mkdir(parents=True)
+    stale_json = full_data_dir / "seed-5_sample-0_full_data.json"
+    stale_json.write_text('{"still": "usable"}', encoding="utf-8")
+    monkeypatch.setattr(
+        np,
+        "savez_compressed",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        DataDumper(
+            str(tmp_path),
+            need_atom_confidence=True,
+            compress_full_confidence=True,
+        ).dump(
+            group_name="",
+            pdb_id="job",
+            seed=5,
+            pred_dict=_minimal_prediction(),
+            atom_array=atom_array,
+            entity_poly_type={"1": "polypeptide(L)"},
+        )
+
+    assert json.loads(stale_json.read_text()) == {"still": "usable"}

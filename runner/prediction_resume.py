@@ -10,6 +10,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from opendde.data.inference.input_validation import (
     validate_inference_seed,
     validate_sample_name,
@@ -54,6 +56,19 @@ def _readable_nonempty_json_object(path: Path, job_dir: Path) -> bool:
         return False
 
 
+def _readable_nonempty_npz(path: Path, job_dir: Path) -> bool:
+    resolved_path = _contained_nonempty_file(path, job_dir)
+    if resolved_path is None:
+        return False
+    try:
+        with np.load(resolved_path, allow_pickle=False) as archive:
+            return bool(archive.files) and all(
+                not archive[key].dtype.hasobject for key in archive.files
+            )
+    except (OSError, ValueError):
+        return False
+
+
 def seed_outputs_complete(
     output_dir: str | Path,
     job_name: str,
@@ -61,6 +76,7 @@ def seed_outputs_complete(
     num_samples: int,
     *,
     need_atom_confidence: bool,
+    compress_full_confidence: bool = False,
 ) -> bool:
     """Return whether one job/seed has every requested canonical output."""
     if isinstance(num_samples, bool) or not isinstance(num_samples, int):
@@ -87,11 +103,23 @@ def seed_outputs_complete(
                 job_dir,
             ):
                 return False
-            if need_atom_confidence and not _readable_nonempty_json_object(
-                job_dir / "full_data" / f"{prefix}_full_data.json",
-                job_dir,
-            ):
-                return False
+            if need_atom_confidence:
+                full_path = (
+                    job_dir
+                    / "full_data"
+                    / (
+                        f"{prefix}_full_data.npz"
+                        if compress_full_confidence
+                        else f"{prefix}_full_data.json"
+                    )
+                )
+                readable = (
+                    _readable_nonempty_npz(full_path, job_dir)
+                    if compress_full_confidence
+                    else _readable_nonempty_json_object(full_path, job_dir)
+                )
+                if not readable:
+                    return False
     except (OSError, TypeError, ValueError):
         return False
     return True
@@ -104,6 +132,7 @@ def incomplete_job_seed_schedule(
     num_samples: int,
     *,
     need_atom_confidence: bool,
+    compress_full_confidence: bool = False,
 ) -> list[list[int]]:
     """Return incomplete seeds for each job without changing requested order."""
     if len(jobs) != len(job_seed_schedule):
@@ -118,6 +147,7 @@ def incomplete_job_seed_schedule(
                 seed,
                 num_samples,
                 need_atom_confidence=need_atom_confidence,
+                compress_full_confidence=compress_full_confidence,
             )
         ]
         for job, seeds in zip(jobs, job_seed_schedule, strict=True)

@@ -40,6 +40,7 @@ class TestInstallation(unittest.TestCase):
             "networkx",
             "packaging",
             "requests",
+            "zstandard",
         ]
 
         for module_name in required_modules:

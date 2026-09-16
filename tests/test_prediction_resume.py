@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from click.testing import CliRunner
 import pytest
 import torch
+import numpy as np
 
 from runner import batch_inference, inference
 
@@ -39,6 +40,7 @@ def _sample_paths(root: Path, job: str, seed: int, sample: int) -> dict[str, Pat
             job_dir / "summary_confidences" / f"{prefix}_summary_confidences.json"
         ),
         "full": job_dir / "full_data" / f"{prefix}_full_data.json",
+        "full_npz": job_dir / "full_data" / f"{prefix}_full_data.npz",
     }
 
 
@@ -52,7 +54,7 @@ def _write_complete_seed(
 ) -> None:
     for sample in range(samples):
         paths = _sample_paths(root, job, seed, sample)
-        for path in paths.values():
+        for path in (paths["model"], paths["summary"], paths["full"]):
             path.parent.mkdir(parents=True, exist_ok=True)
         paths["model"].write_text("data_model\n#\n", encoding="utf-8")
         paths["summary"].write_text(
@@ -66,6 +68,16 @@ def _write_complete_seed(
             )
 
 
+def _write_complete_npz_seed(root: Path, job: str, seed: int, samples: int) -> None:
+    for sample in range(samples):
+        paths = _sample_paths(root, job, seed, sample)
+        for path in (paths["model"], paths["summary"], paths["full_npz"]):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        paths["model"].write_text("data_model\n#\n", encoding="utf-8")
+        paths["summary"].write_text('{"ranking_score": 0.8}', encoding="utf-8")
+        np.savez_compressed(paths["full_npz"], atom_plddt=np.array([0.8]))
+
+
 def _write_input(path: Path, jobs: list[dict]) -> Path:
     path.write_text(json.dumps(jobs), encoding="utf-8")
     return path
@@ -77,6 +89,44 @@ def test_seed_outputs_require_each_canonical_sample_and_optional_full_data(tmp_p
     assert seed_outputs_complete(tmp_path, "job", 7, 2, need_atom_confidence=False)
     assert not seed_outputs_complete(tmp_path, "job", 7, 3, need_atom_confidence=False)
     assert not seed_outputs_complete(tmp_path, "job", 7, 2, need_atom_confidence=True)
+
+
+def test_seed_outputs_require_requested_full_confidence_format(tmp_path):
+    _write_complete_npz_seed(tmp_path, "npz_job", 7, 1)
+    _write_complete_seed(tmp_path, "json_job", 7, 1)
+
+    assert seed_outputs_complete(
+        tmp_path,
+        "npz_job",
+        7,
+        1,
+        need_atom_confidence=True,
+        compress_full_confidence=True,
+    )
+    assert not seed_outputs_complete(
+        tmp_path,
+        "npz_job",
+        7,
+        1,
+        need_atom_confidence=True,
+        compress_full_confidence=False,
+    )
+    assert seed_outputs_complete(
+        tmp_path,
+        "json_job",
+        7,
+        1,
+        need_atom_confidence=True,
+        compress_full_confidence=False,
+    )
+    assert not seed_outputs_complete(
+        tmp_path,
+        "json_job",
+        7,
+        1,
+        need_atom_confidence=True,
+        compress_full_confidence=True,
+    )
 
 
 @pytest.mark.parametrize(
@@ -429,3 +479,86 @@ def test_cli_forwards_skip_and_write_now(tmp_path, monkeypatch, extra_args, expe
 
     assert result.exit_code == 0, result.output
     assert (captured["skip"], captured["write_now"]) == expected
+
+
+def test_cli_forwards_compression_defaults_and_overrides(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(batch_inference, "init_logging", lambda: None)
+    monkeypatch.setattr(
+        batch_inference,
+        "run_prediction_workflow",
+        lambda *_args, **kwargs: captured.update(kwargs) or [],
+    )
+
+    default_result = CliRunner().invoke(
+        batch_inference.predict,
+        ["--input", str(tmp_path / "input.json"), "--run_data_pipeline", "false"],
+    )
+    assert default_result.exit_code == 0, default_result.output
+    assert captured["compress_fold_input"] is True
+    assert captured["compress_full_confidence"] is False
+    captured.clear()
+
+    result = CliRunner().invoke(
+        batch_inference.predict,
+        [
+            "--input",
+            str(tmp_path / "input.json"),
+            "--run_data_pipeline",
+            "false",
+            "--compress_fold_input",
+            "false",
+            "--compress_full_confidence",
+            "true",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["compress_fold_input"] is False
+    assert captured["compress_full_confidence"] is True
+
+    help_result = CliRunner().invoke(batch_inference.predict, ["--help"])
+    assert help_result.exit_code == 0
+    assert "--compress_fold_input" in help_result.output
+    assert "--compress_full_confidence" in help_result.output
+
+
+def test_prep_forwards_compress_fold_input(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        batch_inference,
+        "prepare_input_jobs",
+        lambda *_args, **kwargs: captured.update(kwargs) or [],
+    )
+
+    result = CliRunner().invoke(
+        batch_inference.inputprep,
+        ["--input", str(tmp_path / "input.json"), "--compress_fold_input", "false"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["compress_fold_input"] is False
+    help_result = CliRunner().invoke(batch_inference.inputprep, ["--help"])
+    assert "--compress_fold_input" in help_result.output
+
+
+@pytest.mark.parametrize(
+    "writer",
+    [
+        lambda path: path.write_bytes(b"not an npz"),
+        lambda path: np.savez_compressed(path),
+        lambda path: np.savez_compressed(path, bad=np.array([{"x": 1}], dtype=object)),
+    ],
+)
+def test_corrupt_empty_or_object_npz_is_incomplete(tmp_path, writer):
+    _write_complete_npz_seed(tmp_path, "job", 11, 1)
+    writer(_sample_paths(tmp_path, "job", 11, 0)["full_npz"])
+
+    assert not seed_outputs_complete(
+        tmp_path,
+        "job",
+        11,
+        1,
+        need_atom_confidence=True,
+        compress_full_confidence=True,
+    )

@@ -143,6 +143,7 @@ def _all_requested_outputs_complete(
     n_sample: int,
     *,
     need_atom_confidence: bool,
+    compress_full_confidence: bool = False,
 ) -> bool:
     """Check deterministic requested schedules before loading the model."""
     cli_seeds = (
@@ -175,6 +176,7 @@ def _all_requested_outputs_complete(
             schedule,
             n_sample,
             need_atom_confidence=need_atom_confidence,
+            compress_full_confidence=compress_full_confidence,
         )
         if any(incomplete_seeds for incomplete_seeds in incomplete):
             return False
@@ -440,6 +442,7 @@ def get_default_runner(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
+    compress_full_confidence: bool = False,
     skip: bool = False,
     write_now: bool = True,
     device: InferenceDevice = "auto",
@@ -539,6 +542,7 @@ def get_default_runner(
     configs.use_template = use_template
     configs.use_rna_msa = use_rna_msa
     configs.need_atom_confidence = need_atom_confidence
+    configs.compress_full_confidence = compress_full_confidence
     configs.skip = skip
     configs.write_now = write_now
     configs.write_now_warning_emitted = False
@@ -618,11 +622,13 @@ def run_prediction_workflow(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
+    compress_full_confidence: bool = False,
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     max_template_date: str = "2021-09-30",
     skip: bool = False,
     write_now: bool = True,
+    compress_fold_input: bool = True,
     device: InferenceDevice = "auto",
 ) -> list[str]:
     """
@@ -716,6 +722,7 @@ def run_prediction_workflow(
                     rna_central_database_path=rna_central_database_path,
                     nhmmer_n_cpu=nhmmer_n_cpu,
                     max_template_date=max_template_date,
+                    compress_fold_input=compress_fold_input,
                 )
             )
     else:
@@ -739,6 +746,7 @@ def run_prediction_workflow(
             seeds,
             n_sample,
             need_atom_confidence=need_atom_confidence,
+            compress_full_confidence=compress_full_confidence,
         )
     ):
         logger.info("Skipping inference: all requested job/seed outputs are complete.")
@@ -763,6 +771,7 @@ def run_prediction_workflow(
         use_template=use_template,
         use_rna_msa=use_rna_msa,
         need_atom_confidence=need_atom_confidence,
+        compress_full_confidence=compress_full_confidence,
         skip=skip,
         write_now=write_now,
         kalign_binary_path=kalign_binary_path,
@@ -942,6 +951,18 @@ inference_jsons = run_prediction_workflow
     help="Whether to compute atom-level confidence scores.",
 )
 @click.option(
+    "--compress_fold_input",
+    type=bool,
+    default=True,
+    help="Write prepared MSA and template resources as zstd files.",
+)
+@click.option(
+    "--compress_full_confidence",
+    type=bool,
+    default=False,
+    help="Write detailed confidence as compressed NPZ instead of JSON.",
+)
+@click.option(
     "--skip",
     type=bool,
     default=False,
@@ -1081,6 +1102,8 @@ def predict(
     use_rna_msa: bool,
     msa_server_mode: Optional[str],
     need_atom_confidence: bool,
+    compress_fold_input: bool,
+    compress_full_confidence: bool,
     skip: bool,
     write_now: bool,
     kalign_binary_path: Optional[str] = None,
@@ -1227,6 +1250,8 @@ def predict(
         use_rna_msa=use_rna_msa,
         msa_server_mode=msa_server_mode,
         need_atom_confidence=need_atom_confidence,
+        compress_fold_input=compress_fold_input,
+        compress_full_confidence=compress_full_confidence,
         skip=skip,
         write_now=write_now,
         kalign_binary_path=kalign_binary_path,
@@ -1506,6 +1531,12 @@ def msatemplate(
 # Share the same data stage as pred without constructing an inference runner.
 @click.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
+    "--compress_fold_input",
+    type=bool,
+    default=True,
+    help="Write prepared MSA and template resources as zstd files.",
+)
+@click.option(
     "--max_template_date",
     type=str,
     default="2021-09-30",
@@ -1608,6 +1639,7 @@ def inputprep(
     nhmmer_n_cpu: Optional[int],
     msa_server_mode: Optional[str],
     max_template_date: str = "2021-09-30",
+    compress_fold_input: bool = True,
 ) -> list[str]:
     """
     Perform MSA search, template search, and RNA MSA search sequentially.
@@ -1650,6 +1682,7 @@ def inputprep(
         rna_central_database_path=rna_central_database_path,
         nhmmer_n_cpu=nhmmer_n_cpu,
         max_template_date=max_template_date,
+        compress_fold_input=compress_fold_input,
     )
     for path in paths:
         click.echo(path)

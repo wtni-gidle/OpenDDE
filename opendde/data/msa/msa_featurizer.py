@@ -25,6 +25,7 @@ from opendde.data.msa.msa_utils import (
     map_to_standard,
 )
 from opendde.utils.logger import get_logger
+from opendde.utils.text_io import read_text
 
 logger = get_logger(__name__)
 
@@ -331,11 +332,9 @@ class InferenceMSAFeaturizer:
                     c.get("pairedMsa"),
                 )
                 if u_a3m is None and c.get("unpairedMsaPath"):
-                    with open(c["unpairedMsaPath"]) as f:
-                        u_a3m = f.read()
+                    u_a3m = read_text(c["unpairedMsaPath"])
                 if p_a3m is None and c.get("pairedMsaPath"):
-                    with open(c["pairedMsaPath"]) as f:
-                        p_a3m = f.read()
+                    p_a3m = read_text(c["pairedMsaPath"])
                 if u_a3m is None and (p_a3m is None):
                     if c.get("msa"):
                         msa_dir = c["msa"].get("precomputed_msa_dir")
@@ -356,8 +355,7 @@ class InferenceMSAFeaturizer:
                 if use_rna_msa:
                     u_a3m = c.get("unpairedMsa")
                     if u_a3m is None and c.get("unpairedMsaPath"):
-                        with open(c["unpairedMsaPath"]) as f:
-                            u_a3m = f.read()
+                        u_a3m = read_text(c["unpairedMsaPath"])
             elif "dnaSequence" in info:
                 c = info["dnaSequence"]
                 seq, count, ctype = c["sequence"], c["count"], DNA_CHAIN

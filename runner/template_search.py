@@ -15,6 +15,7 @@ from opendde.data.template.template_utils import TemplateHitFeaturizer
 from opendde.data.tools.search import HmmsearchConfig, run_hmmsearch_with_a3m
 from opendde.utils.download import download_from_url
 from opendde.utils.logger import get_logger
+from opendde.utils.text_io import read_text
 
 logger = get_logger(__name__)
 
@@ -141,8 +142,7 @@ def run_template_search(
     for unpaired_msa_path in msa_paths:
         logger.info(f"msa path: {unpaired_msa_path}")
         if os.path.exists(unpaired_msa_path):
-            with open(unpaired_msa_path, "r") as f:
-                unpaired_msa_a3m = f.read()
+            unpaired_msa_a3m = read_text(unpaired_msa_path)
         else:
             unpaired_msa_a3m = ""
 

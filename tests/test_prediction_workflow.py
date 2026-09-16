@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from opendde.utils.text_io import read_text
 from runner import batch_inference, fold_input, inference, msa_search, template_search
 
 
@@ -52,10 +53,10 @@ def test_data_only_searches_and_writes_one_portable_json(tmp_path, monkeypatch):
     assert list(output.rglob("*.json")) == [Path(paths[0])]
     assert not (output / ".opendde_preprocessed").exists()
     chain = json.loads(Path(paths[0]).read_text())[0]["sequences"][0]["proteinChain"]
-    assert chain["unpairedMsaPath"] == "msas/job__A_unpairedmsa.a3m"
-    assert (
-        Path(paths[0]).parent / chain["unpairedMsaPath"]
-    ).read_text() == ">query\nACD\n"
+    assert chain["unpairedMsaPath"] == "msas/job__A_unpairedmsa.a3m.zst"
+    assert read_text(Path(paths[0]).parent / chain["unpairedMsaPath"]) == (
+        ">query\nACD\n"
+    )
     assert scratches and all(not path.exists() for path in scratches)
 
 
@@ -199,14 +200,15 @@ def test_explicit_templates_skip_automatic_path(tmp_path, monkeypatch, templates
     if templates:
         assert prepared_templates == [
             {
-                "mmcifPath": "msas/job__A_template_0.cif",
+                "mmcifPath": "msas/job__A_template_0.cif.zst",
                 "queryIndices": [0],
                 "templateIndices": [0],
             }
         ]
         assert (
-            Path(paths[0]).parent / prepared_templates[0]["mmcifPath"]
-        ).read_text() == "data_manual\n"
+            read_text(Path(paths[0]).parent / prepared_templates[0]["mmcifPath"])
+            == "data_manual\n"
+        )
     else:
         assert prepared_templates == []
 

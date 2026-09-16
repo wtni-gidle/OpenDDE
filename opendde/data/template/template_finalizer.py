@@ -16,6 +16,7 @@ from opendde.data.template.template_utils import (
     TemplateHitFeaturizer,
     TemplateHitProcessor,
 )
+from opendde.utils.text_io import read_text
 
 
 def load_explicit_template_features(
@@ -29,10 +30,11 @@ def load_explicit_template_features(
     features = []
     for entry in templates:
         path = Path(base_dir) / entry["mmcifPath"]
+        logical_path = path.with_suffix("") if path.suffix == ".zst" else path
         chain_id = entry.get("chainId")
         parsed = TemplateParser.parse(
-            file_id=path.stem,
-            mmcif_string=path.read_text(),
+            file_id=logical_path.stem,
+            mmcif_string=read_text(path),
             auth_chain_id=chain_id,
         )
         mmcif = parsed.mmcif_object
@@ -51,7 +53,7 @@ def load_explicit_template_features(
         )
         hit_features, _ = template_processor._extract_template_features(
             mmcif_obj=mmcif,
-            pdb_id=path.stem,
+            pdb_id=logical_path.stem,
             mapping=mapping,
             template_seq=mmcif.chain_to_seqres[chain_id],
             query_seq=query_sequence,
@@ -77,12 +79,13 @@ def finalize_template_hits(
 ) -> list[dict[str, Any]]:
     """Freeze selected, realigned search hits as portable explicit templates."""
     path = Path(templates_path)
-    content = path.read_text()
-    if path.suffix == ".a3m":
+    content = read_text(path)
+    logical_path = path.with_suffix("") if path.suffix == ".zst" else path
+    if logical_path.suffix == ".a3m":
         hits = HmmsearchA3MParser.parse(
             query_seq=query_sequence, a3m_str=content, skip_first=False
         )
-    elif path.suffix == ".hhr":
+    elif logical_path.suffix == ".hhr":
         hits = HHRParser.parse(hhr_string=content)
     else:
         raise ValueError(f"Unsupported template format: {path}")

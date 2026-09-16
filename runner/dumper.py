@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aureka AI Research
 import os
 from pathlib import Path
+import tempfile
 from typing import List, Optional
 
 import numpy as np
@@ -32,11 +33,23 @@ def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
         if isinstance(value, torch.Tensor):
             if value.dtype == torch.bfloat16:
                 value = value.float()
-            return np.round(value.detach().cpu().numpy(), 2)
+            value = value.detach().cpu().numpy()
+            return (
+                np.round(value, 2)
+                if np.issubdtype(value.dtype, np.floating)
+                else value.copy()
+            )
         if isinstance(value, np.ndarray):
-            return np.round(value, 2)
+            return (
+                np.round(value, 2)
+                if np.issubdtype(value.dtype, np.floating)
+                else value.copy()
+            )
         if isinstance(value, list):
-            return list(np.round(np.array(value), 2))
+            array = np.asarray(value)
+            if np.issubdtype(array.dtype, np.floating):
+                return list(np.round(array, 2))
+            return list(value)
         if isinstance(value, dict):
             return {key: _rounded_copy(item) for key, item in value.items()}
         return value
@@ -66,10 +79,44 @@ class DataDumper:
         base_dir: str,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
         self.base_dir = base_dir
         self.need_atom_confidence = need_atom_confidence
         self.sorted_by_ranking_score = sorted_by_ranking_score
+        self.compress_full_confidence = compress_full_confidence
+
+    @staticmethod
+    def _write_full_data_atomic(path: Path, data: dict, *, compressed: bool) -> None:
+        """Publish one confidence file atomically without pickle-backed arrays."""
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+            if compressed:
+                arrays = {key: np.asarray(value) for key, value in data.items()}
+                object_keys = [
+                    key for key, value in arrays.items() if value.dtype.hasobject
+                ]
+                if object_keys:
+                    raise TypeError(
+                        "NPZ full confidence requires primitive arrays; "
+                        f"object values found for {object_keys}."
+                    )
+                with temporary.open("wb") as handle:
+                    np.savez_compressed(handle, **arrays)
+            else:
+                save_json(data, temporary, indent=None)
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def dump(
         self,
@@ -232,13 +279,21 @@ class DataDumper:
                 f"seed-{seed}_sample-{idx}_summary_confidences.json",
             )
             save_json(summary, output_fpath, indent=4)
+            prefix = f"seed-{seed}_sample-{idx}_full_data"
+            json_path = Path(full_data_dir) / f"{prefix}.json"
+            npz_path = Path(full_data_dir) / f"{prefix}.npz"
             if self.need_atom_confidence:
-                output_fpath = os.path.join(
-                    full_data_dir,
-                    f"seed-{seed}_sample-{idx}_full_data.json",
+                selected_path, stale_path = (
+                    (npz_path, json_path)
+                    if self.compress_full_confidence
+                    else (json_path, npz_path)
                 )
-                save_json(
+                self._write_full_data_atomic(
+                    selected_path,
                     get_clean_full_confidence(data["full_data"][idx]),
-                    output_fpath,
-                    indent=None,
+                    compressed=self.compress_full_confidence,
                 )
+                stale_path.unlink(missing_ok=True)
+            else:
+                json_path.unlink(missing_ok=True)
+                npz_path.unlink(missing_ok=True)

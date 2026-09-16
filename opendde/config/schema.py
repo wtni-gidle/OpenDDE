@@ -347,6 +347,7 @@ class OpenDDEConfig(BaseConfig):
     seeds: list[int]
     dump_dir: str
     need_atom_confidence: bool
+    compress_full_confidence: bool = False
     skip: bool = False
     write_now: bool = True
     write_now_warning_emitted: bool = False

@@ -11,6 +11,7 @@ from ml_collections import ConfigDict
 from opendde.data.template.template_featurizer import InferenceTemplateFeaturizer
 from opendde.data.template.template_parser import TemplateHit, TemplateSearchResult
 from opendde.data.template.template_utils import TemplateHitFeaturizer
+from opendde.utils.text_io import write_zstd_text_atomic
 
 
 def _cif(chains=("A",)):
@@ -108,6 +109,33 @@ def test_explicit_indices_reach_existing_extractor(tmp_path, monkeypatch):
     assert features[0]["template_sequence"] == b"AA"
     assert features[0]["template_sum_probs"] == [0.0]
     assert features[0]["template_release_date"].item() == b"2099-01-01"
+
+
+def test_explicit_template_reads_zstd_by_magic(tmp_path, monkeypatch):
+    from opendde.data.template.template_finalizer import load_explicit_template_features
+
+    write_zstd_text_atomic(tmp_path / "tiny.cif.zst", _cif())
+    online = _online(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        online._hit_processor,
+        "_extract_template_features",
+        lambda **_kwargs: ({"template_sequence": b"AA"}, None),
+    )
+
+    features = load_explicit_template_features(
+        "AA",
+        [
+            {
+                "mmcifPath": "tiny.cif.zst",
+                "queryIndices": [0, 1],
+                "templateIndices": [0, 1],
+            }
+        ],
+        base_dir=tmp_path,
+        template_processor=online._hit_processor,
+    )
+
+    assert features[0]["template_sequence"] == b"AA"
 
 
 @pytest.mark.parametrize("empty", [False, True])

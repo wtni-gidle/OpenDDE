@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from opendde.utils.text_io import read_text, write_zstd_text_atomic
 from runner.fold_input import load_input_jobs, write_prepared_job
 
 
@@ -231,3 +232,76 @@ def test_prepared_file_ligand_resolves_against_prepared_json(tmp_path, monkeypat
 
     _, job = load_input_jobs(str(prepared))[0]
     assert job["sequences"][0]["ligand"]["ligand"] == f"FILE_{job_dir / 'local.sdf'}"
+
+
+def test_compressed_bundle_transcodes_plain_and_zstd_resources_once(tmp_path: Path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    plain_msa = source_dir / "unpaired.a3m"
+    plain_msa.write_text(">query\nACD\n", encoding="utf-8")
+    compressed_template = source_dir / "template.cif.zst"
+    write_zstd_text_atomic(compressed_template, "data_template\n#\n")
+    job = {
+        "name": "compressed",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "ACD",
+                    "count": 1,
+                    "id": ["A"],
+                    "unpairedMsaPath": str(plain_msa),
+                    "templates": [
+                        {
+                            "mmcifPath": str(compressed_template),
+                            "queryIndices": [0, 1, 2],
+                            "templateIndices": [0, 1, 2],
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+
+    prepared_path = Path(
+        write_prepared_job(job, tmp_path / "output", compress_fold_input=True)
+    )
+    prepared = json.loads(prepared_path.read_text())[0]
+    chain = prepared["sequences"][0]["proteinChain"]
+    assert chain["unpairedMsaPath"] == "msas/compressed__A_unpairedmsa.a3m.zst"
+    assert chain["templates"][0]["mmcifPath"] == (
+        "msas/compressed__A_template_0.cif.zst"
+    )
+    for relative_path, expected in (
+        (chain["unpairedMsaPath"], ">query\nACD\n"),
+        (chain["templates"][0]["mmcifPath"], "data_template\n#\n"),
+    ):
+        resource = prepared_path.parent / relative_path
+        assert resource.read_bytes().startswith(b"\x28\xb5\x2f\xfd")
+        assert read_text(resource) == expected
+
+
+def test_plain_bundle_can_read_zstd_source_without_copying_compressed_bytes(
+    tmp_path: Path,
+):
+    source = tmp_path / "source.a3m.zst"
+    write_zstd_text_atomic(source, ">query\nACD\n")
+    job = {
+        "name": "plain",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "ACD",
+                    "count": 1,
+                    "unpairedMsaPath": str(source),
+                }
+            }
+        ],
+    }
+
+    prepared_path = Path(
+        write_prepared_job(job, tmp_path / "output", compress_fold_input=False)
+    )
+    chain = json.loads(prepared_path.read_text())[0]["sequences"][0]["proteinChain"]
+    resource = prepared_path.parent / chain["unpairedMsaPath"]
+    assert resource.name.endswith(".a3m")
+    assert resource.read_text() == ">query\nACD\n"

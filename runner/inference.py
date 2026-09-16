@@ -922,6 +922,7 @@ def _incomplete_job_seed_schedule_synchronized(
     num_samples: int,
     *,
     need_atom_confidence: bool,
+    compress_full_confidence: bool = False,
     world_control_group: dist.ProcessGroup | None = None,
 ) -> list[list[int]]:
     """Check resume outputs once and synchronize the selected job/seed schedule."""
@@ -933,6 +934,7 @@ def _incomplete_job_seed_schedule_synchronized(
             job_seed_schedule,
             num_samples,
             need_atom_confidence=need_atom_confidence,
+            compress_full_confidence=compress_full_confidence,
         )
 
     payload: list[tuple[bool, object] | None] = [None]
@@ -946,6 +948,7 @@ def _incomplete_job_seed_schedule_synchronized(
                     job_seed_schedule,
                     num_samples,
                     need_atom_confidence=need_atom_confidence,
+                    compress_full_confidence=compress_full_confidence,
                 ),
             )
         except Exception as exc:
@@ -1097,6 +1100,7 @@ class InferenceRunner(object):
                 lambda: self.init_dumper(
                     need_atom_confidence=self.configs.need_atom_confidence,
                     sorted_by_ranking_score=self.configs.sorted_by_ranking_score,
+                    compress_full_confidence=self.configs.compress_full_confidence,
                 ),
                 stage="output dumper initialization",
                 foldcp_config=self.foldcp_config,
@@ -1405,7 +1409,10 @@ class InferenceRunner(object):
         self.print(f"Model parameters: {count_parameters(self.model):.2f}M")
 
     def init_dumper(
-        self, need_atom_confidence: bool = False, sorted_by_ranking_score: bool = True
+        self,
+        need_atom_confidence: bool = False,
+        sorted_by_ranking_score: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
         """
         Initialize the data dumper for saving predictions.
@@ -1419,6 +1426,7 @@ class InferenceRunner(object):
             base_dir=self.dump_dir,
             need_atom_confidence=need_atom_confidence,
             sorted_by_ranking_score=sorted_by_ranking_score,
+            compress_full_confidence=compress_full_confidence,
         )
 
     @torch.no_grad()
@@ -1690,6 +1698,9 @@ def _infer_predict_impl(
             num_samples,
             need_atom_confidence=bool(
                 _config_get(configs, "need_atom_confidence", False)
+            ),
+            compress_full_confidence=bool(
+                _config_get(configs, "compress_full_confidence", False)
             ),
             world_control_group=world_control_group,
         )

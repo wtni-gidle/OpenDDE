@@ -8,11 +8,11 @@ from copy import deepcopy
 import json
 from os import PathLike
 from pathlib import Path
-import shutil
 import tempfile
 from typing import Any
 
 from opendde.data.inference.input_validation import validate_inference_jobs
+from opendde.utils.text_io import read_text, write_zstd_text_atomic
 
 
 def _resolve_path(path: str, json_path: Path) -> str:
@@ -93,21 +93,37 @@ def _entity_label(chain: dict[str, Any], used_labels: set[str]) -> str:
 
 
 def _copy_resource(
-    chain: dict[str, Any], field: str, destination: Path, job_dir: Path
+    chain: dict[str, Any],
+    field: str,
+    destination: Path,
+    job_dir: Path,
+    *,
+    compress: bool,
 ) -> None:
     source = chain.get(field)
     if not isinstance(source, str):
         return
-    shutil.copyfile(source, destination)
+    contents = read_text(source)
+    if compress:
+        write_zstd_text_atomic(destination, contents)
+    else:
+        destination.write_text(contents, encoding="utf-8")
     chain[field] = destination.relative_to(job_dir).as_posix()
 
 
-def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str:
+def write_prepared_job(
+    job: dict[str, Any],
+    out_dir: str | PathLike[str],
+    *,
+    compress_fold_input: bool = False,
+) -> str:
     """Copy MSA/template resources and write JSON; FILE_ ligands stay external."""
     prepared = deepcopy(validate_inference_jobs([job])[0])
     job_dir = Path(out_dir) / prepared["name"]
     msa_dir = job_dir / "msas"
     msa_dir.mkdir(parents=True, exist_ok=True)
+    msa_suffix = ".a3m.zst" if compress_fold_input else ".a3m"
+    template_suffix = ".cif.zst" if compress_fold_input else ".cif"
 
     sequences = prepared.get("sequences")
     if isinstance(sequences, list):
@@ -121,14 +137,16 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
                 _copy_resource(
                     protein,
                     "pairedMsaPath",
-                    msa_dir / f"{prepared['name']}__{label}_pairedmsa.a3m",
+                    msa_dir / f"{prepared['name']}__{label}_pairedmsa{msa_suffix}",
                     job_dir,
+                    compress=compress_fold_input,
                 )
                 _copy_resource(
                     protein,
                     "unpairedMsaPath",
-                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa.a3m",
+                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa{msa_suffix}",
                     job_dir,
+                    compress=compress_fold_input,
                 )
                 templates = protein.get("templates")
                 if isinstance(templates, list):
@@ -139,8 +157,9 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
                             template,
                             "mmcifPath",
                             msa_dir
-                            / f"{prepared['name']}__{label}_template_{template_index}.cif",
+                            / f"{prepared['name']}__{label}_template_{template_index}{template_suffix}",
                             job_dir,
+                            compress=compress_fold_input,
                         )
             rna = sequence.get("rnaSequence")
             if isinstance(rna, dict):
@@ -148,8 +167,9 @@ def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str
                 _copy_resource(
                     rna,
                     "unpairedMsaPath",
-                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa.a3m",
+                    msa_dir / f"{prepared['name']}__{label}_unpairedmsa{msa_suffix}",
                     job_dir,
+                    compress=compress_fold_input,
                 )
 
     prepared_path = job_dir / f"{prepared['name']}_data.json"
@@ -179,6 +199,7 @@ def prepare_input_jobs(
     nhmmer_n_cpu: int | None = None,
     max_template_date: str = "2021-09-30",
     template_featurizer: Any = None,
+    compress_fold_input: bool = True,
 ) -> list[str]:
     """Run searches in memory and publish one portable bundle per input job."""
     from opendde.config.data import data_configs
@@ -221,8 +242,16 @@ def prepare_input_jobs(
                     for field in ("pairedMsaPath", "unpairedMsaPath", "templatesPath"):
                         source = chain.get(field)
                         if isinstance(source, str) and Path(source).is_file():
-                            destination = chain_dir / f"{field}{Path(source).suffix}"
-                            shutil.copyfile(source, destination)
+                            source_path = Path(source)
+                            logical_path = (
+                                source_path.with_suffix("")
+                                if source_path.suffix == ".zst"
+                                else source_path
+                            )
+                            destination = chain_dir / f"{field}{logical_path.suffix}"
+                            destination.write_text(
+                                read_text(source_path), encoding="utf-8"
+                            )
                             chain[field] = str(destination)
                 if template_featurizer is None:
                     template_config = data_configs["template"]
@@ -258,5 +287,11 @@ def prepare_input_jobs(
                     rna_central_database_path=rna_central_database_path,
                     nhmmer_n_cpu=nhmmer_n_cpu,
                 )
-            prepared_paths.append(write_prepared_job(job, out_dir))
+            prepared_paths.append(
+                write_prepared_job(
+                    job,
+                    out_dir,
+                    compress_fold_input=compress_fold_input,
+                )
+            )
     return prepared_paths

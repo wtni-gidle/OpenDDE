@@ -25,6 +25,7 @@ from opendde.data.template.template_utils import (
 )
 from opendde.data.utils import pad_to
 from opendde.utils.logger import get_logger
+from opendde.utils.text_io import read_text
 
 logger = get_logger(__name__)
 
@@ -311,12 +312,14 @@ class InferenceTemplateFeaturizer:
                 )
             elif t_path and use_template and online_template_featurizer:
                 assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
-                with open(t_path, "r") as f:
-                    content = f.read()
+                content = read_text(t_path)
+                logical_path = (
+                    t_path[: -len(".zst")] if t_path.endswith(".zst") else t_path
+                )
 
-                if t_path.endswith(".hhr"):
+                if logical_path.endswith(".hhr"):
                     hits = HHRParser.parse(hhr_string=content)
-                elif t_path.endswith(".a3m"):
+                elif logical_path.endswith(".a3m"):
                     hits = HmmsearchA3MParser.parse(
                         query_seq=seq, a3m_str=content, skip_first=False
                     )
