@@ -1669,15 +1669,6 @@ def _infer_predict_impl(
     input_path = Path(configs.input_json_path).resolve()
     json_data = [resolve_job_paths(job, input_path) for job in json_data]
 
-    if not _config_get(configs, "write_now", True) and not _config_get(
-        configs, "write_now_warning_emitted", False
-    ):
-        logger.warning(
-            "write_now=False was requested, but OpenDDE always writes each "
-            "prediction synchronously; synchronous writing remains enabled."
-        )
-        setattr(configs, "write_now_warning_emitted", True)
-
     # Seed precedence is resolved independently for every JSON job:
     # command line > that job's modelSeeds > synchronized random seed.
     cli_seeds = [int(seed) for seed in configs.seeds] if configs.seeds else None

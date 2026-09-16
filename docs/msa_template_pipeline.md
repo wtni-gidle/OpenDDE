@@ -148,10 +148,9 @@ With `--use_template true`, omitted or `null` `proteinChain.templates` requests
 automatic selection during the data stage. `templates: []` disables templates
 for that protein. A non-empty list uses the supplied mmCIFs and mappings without
 automatic search. Each entry requires `mmcifPath`, `queryIndices`, and
-`templateIndices`, with equal-length lists of zero-based residue indices. For
-an mmCIF with multiple protein chains, also supply `chainId` using the selected
-chain's author ID (`auth_asym_id`, not `label_asym_id`); it is unnecessary for a
-single-protein-chain mmCIF.
+`templateIndices`, with equal-length lists of zero-based residue indices. The
+referenced mmCIF must contain exactly one protein chain. Automatic template hits
+are extracted to this single-chain form after selection and realignment.
 
 Run automatic preparation with explicit tools/database if needed:
 

@@ -70,11 +70,10 @@ An explicit item has the AF3 path-and-residue-map fields:
 }
 ```
 
-AF3 assumes that such an mmCIF contains one protein chain. OpenDDE accepts that
-form unchanged. Prepared templates originating from a normal multi-chain PDB
-mmCIF may additionally contain `chainId`; it records the chain selected by the
-existing OpenDDE template-hit processor and avoids altering the downloaded CIF.
-No `chainId` is needed for a one-protein-chain mmCIF.
+As in AF3, each referenced mmCIF contains exactly one protein chain and the JSON
+entry has no chain selector. For automatic hits, the data stage extracts the
+selected chain from the source PDB mmCIF while preserving its complete polymer
+sequence, including unresolved residues.
 
 Automatic search uses `max_template_date`; explicit templates bypass it. The
 prepared bundle contains the selected mmCIF files and residue mappings, so
@@ -153,7 +152,7 @@ No legacy prediction tree is written in parallel.
   model construction. Fold-CP checks only after its existing Gloo control group
   exists, with rank 0 broadcasting the schedule to keep all ranks in the same
   collective control flow.
-- `--write_now` is accepted for AF3 Pro compatibility, but OpenDDE always writes
-  each prediction synchronously and does not implement delayed caching.
+- OpenDDE writes each prediction synchronously and does not implement delayed
+  caching.
 - Unsafe or duplicate names continue to use the validation already present in
   OpenDDE; the wrapper adds no second name-validation subsystem.

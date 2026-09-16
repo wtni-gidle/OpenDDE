@@ -17,8 +17,6 @@ inference_configs: dict[str, Any] = {
     "need_atom_confidence": True,
     "compress_full_confidence": False,
     "skip": False,
-    "write_now": True,
-    "write_now_warning_emitted": False,
     "sorted_by_ranking_score": True,
     "device": "auto",
     "input_json_path": RequiredValue(str),

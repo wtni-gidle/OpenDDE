@@ -9,12 +9,17 @@ from biotite.structure import AtomArray
 from ml_collections import ConfigDict
 
 from opendde.data.template.template_featurizer import InferenceTemplateFeaturizer
-from opendde.data.template.template_parser import TemplateHit, TemplateSearchResult
+from opendde.data.template.template_parser import (
+    TemplateHit,
+    TemplateParser,
+    TemplateSearchResult,
+)
 from opendde.data.template.template_utils import TemplateHitFeaturizer
 from opendde.utils.text_io import write_zstd_text_atomic
 
 
-def _cif(chains=("A",)):
+def _cif(chains=("A",), *, missing_residues=None):
+    missing_residues = missing_residues or {}
     header = """data_tiny
 _entry.id tiny
 _pdbx_audit_revision_history.revision_date 2099-01-01
@@ -55,6 +60,8 @@ _atom_site.pdbx_PDB_model_num
 """
     for chain_index, chain in enumerate(chains):
         for i in range(1, 8):
+            if i in missing_residues.get(chain, ()):
+                continue
             header += (
                 f"ATOM {chain_index * 7 + i} C CA . ALA {chain} 1 {i} ? "
                 f"{i * 3.8} {chain_index * 10} 0 1 20 {i} {chain} 1\n"
@@ -169,7 +176,7 @@ def test_explicit_templates_override_legacy_hits_and_dates(
     assert int(result["template_atom_mask"].sum()) == (0 if empty else 7)
 
 
-def test_explicit_template_requires_single_chain_without_chain_id(tmp_path):
+def test_explicit_template_requires_single_chain_and_rejects_chain_id(tmp_path):
     from opendde.data.template.template_finalizer import load_explicit_template_features
 
     (tmp_path / "tiny.cif").write_text(_cif(("A", "B")))
@@ -179,16 +186,18 @@ def test_explicit_template_requires_single_chain_without_chain_id(tmp_path):
         "queryIndices": list(range(7)),
         "templateIndices": list(range(7)),
     }
-    with pytest.raises(ValueError, match="chainId"):
+    with pytest.raises(ValueError, match="single protein chain"):
         load_explicit_template_features(
             "AAAAAAA", [entry], base_dir=tmp_path, template_processor=processor
         )
-    entry["chainId"] = "B"
-    features = load_explicit_template_features(
-        "AAAAAAA", [entry], base_dir=tmp_path, template_processor=processor
-    )
-    assert features[0]["template_all_atom_masks"].sum() == 7
-    assert features[0]["template_domain_names"].item() == b"tiny_B"
+
+    (tmp_path / "single.cif").write_text(_cif())
+    entry["mmcifPath"] = "single.cif"
+    entry["chainId"] = "A"
+    with pytest.raises(ValueError, match="does not support chainId"):
+        load_explicit_template_features(
+            "AAAAAAA", [entry], base_dir=tmp_path, template_processor=processor
+        )
 
 
 def test_explicit_without_release_date_works_offline(tmp_path):
@@ -255,11 +264,81 @@ def test_finalize_serializes_selected_realigned_mapping(tmp_path, monkeypatch, c
     entry = entries[0]
     assert entry["queryIndices"] == [0, 2]
     assert entry["templateIndices"] == [5, 6]
-    assert Path(entry["mmcifPath"]).read_text() == text
-    if len(chains) > 1:
-        assert entry["chainId"] == "B"
-    else:
-        assert set(entry) == {"mmcifPath", "queryIndices", "templateIndices"}
+    assert set(entry) == {"mmcifPath", "queryIndices", "templateIndices"}
+    assert Path(entry["mmcifPath"]).name == f"tiny_{selected_chain}.cif"
+    extracted = TemplateParser.parse(
+        file_id="tiny", mmcif_string=Path(entry["mmcifPath"]).read_text()
+    ).mmcif_object
+    assert extracted is not None
+    assert extracted.chain_to_seqres == {selected_chain: "AAAAAAA"}
+
+
+def test_finalized_single_chain_preserves_unresolved_residues_and_features(
+    tmp_path, monkeypatch
+):
+    from opendde.data.template.template_finalizer import (
+        finalize_template_hits,
+        load_explicit_template_features,
+    )
+    from opendde.data.template.template_parser import TemplateParser
+
+    text = _cif(("A", "B"), missing_residues={"B": {4}})
+    (tmp_path / "tiny.cif").write_text(text)
+    hits_path = tmp_path / "hits.a3m"
+    hits_path.write_text(">tiny_B/1-7 mol:protein length:7\nAAAAAAA\n")
+    online = TemplateHitFeaturizer(mmcif_dir=str(tmp_path), max_hits=4)
+    hit = TemplateHit(
+        1,
+        "tiny_B",
+        7,
+        None,
+        "AAAAAAA",
+        "AAAAAAA",
+        list(range(7)),
+        list(range(7)),
+    )
+    monkeypatch.setattr(
+        online,
+        "get_templates",
+        lambda **_kwargs: (TemplateSearchResult([{}], [hit], [], []), {}),
+    )
+
+    [entry] = finalize_template_hits(
+        "AAAAAAA", hits_path, online, max_template_date="2000-01-01"
+    )
+    original = TemplateParser.parse(
+        file_id="tiny", mmcif_string=text, auth_chain_id="B"
+    ).mmcif_object
+    extracted = TemplateParser.parse(
+        file_id="tiny", mmcif_string=Path(entry["mmcifPath"]).read_text()
+    ).mmcif_object
+    assert original is not None and extracted is not None
+    assert original.chain_to_seqres == extracted.chain_to_seqres == {"B": "AAAAAAA"}
+    assert original.seqres_to_structure["B"][3].is_missing
+    assert extracted.seqres_to_structure["B"][3].is_missing
+
+    processor = online._hit_processor
+    mapping = dict(zip(entry["queryIndices"], entry["templateIndices"], strict=True))
+    original_features, _ = processor._extract_template_features(
+        mmcif_obj=original,
+        pdb_id="tiny",
+        mapping=mapping,
+        template_seq=original.chain_to_seqres["B"],
+        query_seq="AAAAAAA",
+        chain_id="B",
+        _zero_center=processor._zero_center_positions,
+    )
+    original_features["template_sum_probs"] = [0.0]
+    original_features["template_release_date"] = np.array(b"2099-01-01", dtype=object)
+    [extracted_features] = load_explicit_template_features(
+        "AAAAAAA",
+        [entry],
+        base_dir=tmp_path,
+        template_processor=processor,
+    )
+    assert original_features.keys() == extracted_features.keys()
+    for key in original_features:
+        np.testing.assert_array_equal(original_features[key], extracted_features[key])
 
 
 def test_update_finalizes_existing_hits_without_search(tmp_path, monkeypatch):

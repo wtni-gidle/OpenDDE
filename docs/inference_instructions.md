@@ -408,9 +408,7 @@ the model runner. Fold-CP first constructs its runner and Gloo control group;
 rank 0 then checks completeness and broadcasts the selected schedule so every
 rank collectively skips or runs the same work.
 
-`--write_now` is an AF3 Pro compatibility flag. OpenDDE already writes every
-job/seed synchronously. Its default is `true`; `false` is accepted with one
-warning and does not enable delayed caching.
+OpenDDE writes every job/seed synchronously; there is no delayed-write mode.
 
 ## Common flags
 
@@ -429,7 +427,6 @@ warning and does not enable delayed caching.
 | `--compress_fold_input` | Write prepared MSA/template text as `.zst`; default `true`. Plain text manually placed under that suffix is still readable. |
 | `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `false`. |
 | `--skip` | Skip complete job/seed outputs; boolean, default `false`. |
-| `--write_now` | Compatibility flag, default `true`; writes remain synchronous when set to `false`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |
 | `--foldcp_mode` | `single` or `distributed`; use `distributed` with `torchrun` for multi-GPU Fold-CP inference. |
 | `--foldcp_size_dp` | Compatibility option; only `1` is supported. Runtime `2 x 2` topology is not maintained. |

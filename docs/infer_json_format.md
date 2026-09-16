@@ -87,10 +87,9 @@ With `--use_template true`, `templates` has three states:
 
 Each explicit entry requires `mmcifPath`, `queryIndices`, and `templateIndices`.
 The two index lists have equal length and contain zero-based residue indices in
-the query and template chain sequences, respectively. An mmCIF with one protein
-chain needs no chain selector; for a multi-protein-chain mmCIF, supply `chainId`
-using the chosen chain's author ID (`auth_asym_id`, not `label_asym_id`).
-Automatically prepared templates retain that selector when needed.
+the query and template chain sequences, respectively. Each mmCIF must contain
+exactly one protein chain, as in AF3 input. Automatically selected templates are
+extracted from their source PDB entries and written as single-chain mmCIF files.
 
 Automatic selection respects `--max_template_date YYYY-MM-DD` (default
 `2021-09-30`). Explicit templates bypass the release-date cutoff, matching AF3

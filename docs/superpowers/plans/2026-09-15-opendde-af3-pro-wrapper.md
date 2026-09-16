@@ -95,8 +95,8 @@ git commit -m "feat: add portable OpenDDE input bundles"
 **Interfaces:**
 - Produces: `load_explicit_template_features(query_sequence, templates, *, base_dir, template_processor) -> list[Mapping[str, Any]]`.
 - Produces: `finalize_template_hits(query_sequence, templates_path, template_featurizer, *, max_template_date) -> list[dict[str, Any]]`.
-- Explicit list entries consume `mmcifPath`, `queryIndices`, `templateIndices`, and optional `chainId`.
-- Automatic finalisation emits the same fields plus `chainId` when the selected source mmCIF has multiple protein chains.
+- Explicit list entries consume `mmcifPath`, `queryIndices`, and `templateIndices`; the referenced mmCIF must contain one protein chain.
+- Automatic finalisation extracts the selected source chain to a single-chain mmCIF and emits those same three fields.
 
 - [ ] **Step 1: Write failing explicit-template tests**
 
@@ -108,7 +108,7 @@ explicit template bypasses the online hit featurizer and any date filtering.
 
 For finalisation, provide a fake `TemplateHitFeaturizer.get_templates()` result
 with a realigned hit and assert the serialised entry contains literal
-`queryIndices`, `templateIndices`, the mmCIF text/path, and selected `chainId`.
+`queryIndices`, `templateIndices`, and a single-chain mmCIF path.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -120,8 +120,8 @@ Expected: failures show the explicit-template branch and finalizer are absent.
 
 In `InferenceTemplateFeaturizer.make_template_feature`, prefer a non-`None`
 `proteinChain.templates` value over legacy `templatesPath`. For every explicit
-entry: read the mmCIF; call `TemplateParser.parse()` with optional `chainId`;
-when `chainId` is absent require the parsed mmCIF to expose one protein chain;
+entry: read the mmCIF; reject `chainId`; require the parsed mmCIF to expose one
+protein chain;
 zip `queryIndices` and `templateIndices`; and call the existing processor's
 `_extract_template_features()`. Add `template_sum_probs=[0.0]` because the model
 assembly expects the same feature shape as searched templates. Do not apply a
@@ -131,9 +131,10 @@ release-date cutoff to explicit entries.
 
 Parse `.a3m` with `HmmsearchA3MParser` and `.hhr` with `HHRParser`; call the
 existing `TemplateHitFeaturizer.get_templates()` exactly once. For every
-selected realigned hit, serialise its non-gap mapping and retrieve the same
-mmCIF through the configured hit processor. Keep selection order and maximum
-four behaviour from the existing featurizer. Extend `update_template_info()`
+selected realigned hit, serialise its non-gap mapping, retrieve the source
+mmCIF through the configured hit processor, and extract the selected chain to a
+single-chain mmCIF without renumbering the complete polymer sequence. Keep
+selection order and maximum four behaviour from the existing featurizer. Extend `update_template_info()`
 with optional finalisation arguments so the wrapper data stage can replace
 `templatesPath` with `templates`; leave legacy callers unchanged.
 

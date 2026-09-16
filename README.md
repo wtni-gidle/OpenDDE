@@ -213,8 +213,7 @@ Sample numbers are original diffusion sample indices, not confidence ranks.
 `full_data/` is written only with `--need_atom_confidence true` (the default).
 Use `--skip true` to skip job/seed combinations whose required canonical files
 are present and readable; incomplete or corrupt seeds are recomputed. The
-`--write_now` compatibility option defaults to `true`; OpenDDE always writes
-each prediction synchronously, including when `false` is supplied.
+prediction files are written synchronously before each job/seed completes.
 Pass `--compress_full_confidence true` to write the detailed file as `.npz`
 instead. Resume checks require the selected format, and a successful rerun
 removes the stale JSON/NPZ alternate.

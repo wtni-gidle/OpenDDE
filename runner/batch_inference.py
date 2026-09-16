@@ -444,7 +444,6 @@ def get_default_runner(
     *,
     compress_full_confidence: bool = False,
     skip: bool = False,
-    write_now: bool = True,
     device: InferenceDevice = "auto",
 ) -> InferenceRunner:
     """
@@ -470,7 +469,6 @@ def get_default_runner(
         use_template (bool): Whether to use templates.
         use_rna_msa (bool): Whether to use RNA MSA.
         skip (bool): Skip seeds whose canonical outputs are already complete.
-        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
         foldcp_mode (str): Fold-CP execution mode.
@@ -544,8 +542,6 @@ def get_default_runner(
     configs.need_atom_confidence = need_atom_confidence
     configs.compress_full_confidence = compress_full_confidence
     configs.skip = skip
-    configs.write_now = write_now
-    configs.write_now_warning_emitted = False
     configs.sample_diffusion.guidance["enable"] = use_tfg_guidance
     # Runtime assignment intentionally stays mutable for legacy callers, so
     # rebuild the typed view once before any filesystem, process-group, or model
@@ -627,7 +623,6 @@ def run_prediction_workflow(
     run_inference: bool = True,
     max_template_date: str = "2021-09-30",
     skip: bool = False,
-    write_now: bool = True,
     compress_fold_input: bool = True,
     device: InferenceDevice = "auto",
 ) -> list[str]:
@@ -656,7 +651,6 @@ def run_prediction_workflow(
         use_rna_msa (bool): Whether to use RNA MSA.
         msa_server_mode (Optional[str]): Deprecated compatibility argument; ignored.
         skip (bool): Skip seeds whose canonical outputs are already complete.
-        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -730,13 +724,6 @@ def run_prediction_workflow(
     _validate_input_collection(infer_jsons)
     if not run_inference or not infer_jsons:
         return infer_jsons
-    write_now_warning_emitted = False
-    if not write_now:
-        logger.warning(
-            "write_now=False was requested, but OpenDDE always writes each "
-            "prediction synchronously; synchronous writing remains enabled."
-        )
-        write_now_warning_emitted = True
     if (
         skip
         and foldcp_mode == "single"
@@ -773,7 +760,6 @@ def run_prediction_workflow(
         need_atom_confidence=need_atom_confidence,
         compress_full_confidence=compress_full_confidence,
         skip=skip,
-        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         foldcp_mode=foldcp_mode,
@@ -796,7 +782,6 @@ def run_prediction_workflow(
         )
         logger.info(f"Will infer with {len(infer_jsons)} jsons")
         configs = runner.configs
-        configs["write_now_warning_emitted"] = write_now_warning_emitted
         for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
             try:
                 configs["input_json_path"] = infer_json
@@ -969,12 +954,6 @@ inference_jsons = run_prediction_workflow
     help="Skip job seeds whose canonical prediction outputs are complete.",
 )
 @click.option(
-    "--write_now",
-    type=bool,
-    default=True,
-    help="Compatibility flag; OpenDDE always writes predictions synchronously.",
-)
-@click.option(
     "--foldcp_mode",
     type=click.Choice(["single", "distributed"]),
     default="single",
@@ -1105,7 +1084,6 @@ def predict(
     compress_fold_input: bool,
     compress_full_confidence: bool,
     skip: bool,
-    write_now: bool,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
@@ -1155,7 +1133,6 @@ def predict(
         msa_server_mode (Optional[str]): Deprecated compatibility option; ignored.
         need_atom_confidence (bool): Compute atom-level confidence scores.
         skip (bool): Skip seeds whose canonical outputs are already complete.
-        write_now (bool): Compatibility flag; writes remain synchronous.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -1253,7 +1230,6 @@ def predict(
         compress_fold_input=compress_fold_input,
         compress_full_confidence=compress_full_confidence,
         skip=skip,
-        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,

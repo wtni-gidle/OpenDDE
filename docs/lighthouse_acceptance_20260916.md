@@ -203,10 +203,10 @@ Not exercised by this acceptance:
 - multichain MSA pairing behavior;
 - distributed Fold-CP.
 
-`docs/inference_instructions.md` was reviewed and left unchanged. It already
+`docs/inference_instructions.md` was reviewed and updated. It
 documents name-driven output paths, relative MSA/template resolution, portable
 D-only/P-only usage, compression and magic-byte behavior, manual unpaired-MSA
-replacement, explicit-template cutoff behavior, `--skip`, JSON/NPZ confidence,
-`--write_now`, and Fold-CP. The cancelled native revision's CWD-sensitive relative
+replacement, explicit-template cutoff behavior, `--skip`, synchronous output,
+JSON/NPZ confidence, and Fold-CP. The cancelled native revision's CWD-sensitive relative
 path behavior is not part of the wrapper's user-facing contract and does not expose
 a wrapper documentation gap.

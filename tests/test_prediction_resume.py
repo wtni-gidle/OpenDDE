@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -291,40 +290,6 @@ def test_distributed_resume_schedule_broadcasts_rank0_failure(tmp_path, monkeypa
     assert broadcasts == [((False, "OSError: storage offline"), 0, control_group)]
 
 
-def test_write_now_false_warns_once_and_still_allows_pre_runner_skip(
-    tmp_path, monkeypatch, caplog
-):
-    source = _write_input(
-        tmp_path / "job_data.json",
-        [{"name": "job", "modelSeeds": [7], "sequences": []}],
-    )
-    output = tmp_path / "output"
-    _write_complete_seed(output, "job", 7, 1, full_data=False)
-    monkeypatch.setattr(
-        batch_inference,
-        "get_default_runner",
-        lambda **_kwargs: pytest.fail("complete outputs must not initialize runner"),
-    )
-
-    with caplog.at_level(logging.WARNING):
-        batch_inference.run_prediction_workflow(
-            str(source),
-            str(output),
-            run_data_pipeline=False,
-            run_inference=True,
-            n_sample=1,
-            need_atom_confidence=False,
-            skip=True,
-            write_now=False,
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert (
-        sum("always writes each prediction synchronously" in msg for msg in messages)
-        == 1
-    )
-
-
 class _AttrDict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
@@ -347,7 +312,6 @@ def test_direct_infer_predict_skips_complete_outputs_before_dataloader(
         model=SimpleNamespace(N_model_seed=1),
         need_atom_confidence=False,
         skip=True,
-        write_now=True,
     )
     runner = SimpleNamespace(
         foldcp_config=SimpleNamespace(enabled=False),
@@ -380,7 +344,6 @@ def test_direct_infer_predict_reruns_an_incomplete_seed(tmp_path, monkeypatch):
         model=SimpleNamespace(N_model_seed=1),
         need_atom_confidence=False,
         skip=True,
-        write_now=True,
     )
     runner = SimpleNamespace(
         foldcp_config=SimpleNamespace(enabled=False),
@@ -407,55 +370,14 @@ def test_direct_infer_predict_reruns_an_incomplete_seed(tmp_path, monkeypatch):
     assert reached_dataloader == [True]
 
 
-def test_direct_write_now_warning_is_emitted_once(tmp_path, monkeypatch, caplog):
-    source = _write_input(
-        tmp_path / "job_data.json",
-        [{"name": "job", "modelSeeds": [7], "sequences": []}],
-    )
-    output = tmp_path / "output"
-    _write_complete_seed(output, "job", 7, 1, full_data=False)
-    configs = _AttrDict(
-        input_json_path=str(source),
-        seeds=[],
-        dump_dir=str(output),
-        sample_diffusion=SimpleNamespace(N_sample=1),
-        model=SimpleNamespace(N_model_seed=1),
-        need_atom_confidence=False,
-        skip=True,
-        write_now=False,
-    )
-    runner = SimpleNamespace(
-        foldcp_config=SimpleNamespace(enabled=False),
-        foldcp_world_control_group=None,
-        foldcp_control_group=None,
-        foldcp_cp_rank=0,
-        error_dir=str(tmp_path / "errors"),
-    )
-    monkeypatch.setattr(
-        inference,
-        "_create_inference_dataloader_synchronized",
-        lambda *_args, **_kwargs: pytest.fail("complete outputs must not load data"),
-    )
-
-    with caplog.at_level(logging.WARNING):
-        inference.infer_predict(runner, configs)
-        inference.infer_predict(runner, configs)
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert (
-        sum("always writes each prediction synchronously" in msg for msg in messages)
-        == 1
-    )
-
-
 @pytest.mark.parametrize(
-    ("extra_args", "expected"),
+    ("extra_args", "expected_skip"),
     [
-        ([], (False, True)),
-        (["--skip", "true", "--write_now", "false"], (True, False)),
+        ([], False),
+        (["--skip", "true"], True),
     ],
 )
-def test_cli_forwards_skip_and_write_now(tmp_path, monkeypatch, extra_args, expected):
+def test_cli_forwards_skip(tmp_path, monkeypatch, extra_args, expected_skip):
     captured = {}
     monkeypatch.setattr(batch_inference, "init_logging", lambda: None)
     monkeypatch.setattr(
@@ -478,7 +400,24 @@ def test_cli_forwards_skip_and_write_now(tmp_path, monkeypatch, extra_args, expe
     )
 
     assert result.exit_code == 0, result.output
-    assert (captured["skip"], captured["write_now"]) == expected
+    assert captured["skip"] is expected_skip
+    assert "write_now" not in captured
+
+
+def test_cli_rejects_removed_write_now_option(tmp_path):
+    (tmp_path / "input.json").write_text("[]")
+    result = CliRunner().invoke(
+        batch_inference.predict,
+        [
+            "--input",
+            str(tmp_path / "input.json"),
+            "--write_now",
+            "false",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option '--write_now'" in result.output
 
 
 def test_cli_forwards_compression_defaults_and_overrides(tmp_path, monkeypatch):

@@ -16,7 +16,6 @@ Wrapper options:
   -s INT    Diffusion samples per seed (default: 5).
   -m DATE   Automatic-template cutoff (default: 2021-09-30).
   -S BOOL   Skip complete job/seed outputs (default: false).
-  -w BOOL   write_now compatibility flag (default: true).
   -z BOOL   --compress_fold_input (default: true).
   -f BOOL   --compress_full_confidence (default: false).
   -a BOOL   --need_atom_confidence (default: true).
@@ -35,12 +34,11 @@ seeds=""
 sample="5"
 max_template_date="2021-09-30"
 skip="false"
-write_now="true"
 compress_fold_input="true"
 compress_full_confidence="false"
 need_atom_confidence="true"
 
-while getopts ":i:o:D:P:r:s:m:S:w:z:f:a:h" option; do
+while getopts ":i:o:D:P:r:s:m:S:z:f:a:h" option; do
     case "$option" in
         i) input_path=$OPTARG ;;
         o) output_dir=$OPTARG ;;
@@ -50,7 +48,6 @@ while getopts ":i:o:D:P:r:s:m:S:w:z:f:a:h" option; do
         s) sample=$OPTARG ;;
         m) max_template_date=$OPTARG ;;
         S) skip=$OPTARG ;;
-        w) write_now=$OPTARG ;;
         z) compress_fold_input=$OPTARG ;;
         f) compress_full_confidence=$OPTARG ;;
         a) need_atom_confidence=$OPTARG ;;
@@ -89,7 +86,6 @@ command_args=(
     --sample "$sample"
     --max_template_date "$max_template_date"
     --skip "$skip"
-    --write_now "$write_now"
     --compress_fold_input "$compress_fold_input"
     --compress_full_confidence "$compress_full_confidence"
     --need_atom_confidence "$need_atom_confidence"

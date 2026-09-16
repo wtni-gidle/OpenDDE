@@ -36,8 +36,6 @@ def test_run_opendde_forwards_wrapper_options_and_trailing_arguments(tmp_path: P
             "2025-01-02",
             "-S",
             "true",
-            "-w",
-            "false",
             "-z",
             "false",
             "-f",
@@ -77,8 +75,6 @@ def test_run_opendde_forwards_wrapper_options_and_trailing_arguments(tmp_path: P
         "2025-01-02",
         "--skip",
         "true",
-        "--write_now",
-        "false",
         "--compress_fold_input",
         "false",
         "--compress_full_confidence",
@@ -110,3 +106,30 @@ def test_run_opendde_help_and_shell_syntax():
     assert "OPENDDE_BIN" in help_result.stdout
     assert "--compress_fold_input" in help_result.stdout
     assert "--compress_full_confidence" in help_result.stdout
+
+
+def test_run_opendde_rejects_removed_write_now_option(tmp_path: Path):
+    input_path = tmp_path / "input.json"
+    input_path.write_text("[]", encoding="utf-8")
+    fake = tmp_path / "fake-opendde"
+    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "run_opendde.sh",
+            "-i",
+            str(input_path),
+            "-o",
+            str(tmp_path / "out"),
+            "-w",
+            "false",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "OPENDDE_BIN": str(fake)},
+    )
+
+    assert result.returncode == 2
