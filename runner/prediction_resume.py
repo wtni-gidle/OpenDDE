@@ -83,7 +83,7 @@ def seed_outputs_complete(
             ):
                 return False
             if not _readable_nonempty_json_object(
-                job_dir / "summary_confidences" / f"{prefix}_summary_confidence.json",
+                job_dir / "summary_confidences" / f"{prefix}_summary_confidences.json",
                 job_dir,
             ):
                 return False

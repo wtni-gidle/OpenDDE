@@ -170,3 +170,64 @@ def test_write_prepared_job_assigns_fallback_labels_without_overwriting_msa(
     assert loaded[0]["sequences"][1]["rnaSequence"]["unpairedMsaPath"] == (
         "msas/mixed__A_unpairedmsa.a3m"
     )
+
+
+def test_file_ligand_is_json_relative_and_stays_external_in_prepared_bundle(
+    tmp_path, monkeypatch
+):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    ligand_file = source_dir / "ligand.sdf"
+    ligand_file.write_text("external ligand")
+    source_json = source_dir / "input.json"
+    source_json.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "ligand_job",
+                    "sequences": [
+                        {"ligand": {"ligand": "FILE_ligand.sdf", "count": 1}},
+                        {"ligand": {"ligand": "CCD_ATP", "count": 1}},
+                    ],
+                }
+            ]
+        )
+    )
+    monkeypatch.chdir(tmp_path)
+
+    _, job = load_input_jobs(str(source_json))[0]
+    expected = f"FILE_{ligand_file}"
+    assert job["sequences"][0]["ligand"]["ligand"] == expected
+    assert job["sequences"][1]["ligand"]["ligand"] == "CCD_ATP"
+    prepared = Path(write_prepared_job(job, tmp_path / "output"))
+    assert (
+        json.loads(prepared.read_text())[0]["sequences"][0]["ligand"]["ligand"]
+        == expected
+    )
+    assert list((prepared.parent / "msas").iterdir()) == []
+
+    moved_dir = tmp_path / "moved"
+    prepared.parent.rename(moved_dir)
+    _, reloaded = load_input_jobs(str(moved_dir / prepared.name))[0]
+    assert reloaded["sequences"][0]["ligand"]["ligand"] == expected
+    assert ligand_file.read_text() == "external ligand"
+
+
+def test_prepared_file_ligand_resolves_against_prepared_json(tmp_path, monkeypatch):
+    job_dir = tmp_path / "prepared"
+    job_dir.mkdir()
+    prepared = job_dir / "job_data.json"
+    prepared.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "job",
+                    "sequences": [{"ligand": {"ligand": "FILE_local.sdf", "count": 1}}],
+                }
+            ]
+        )
+    )
+    monkeypatch.chdir(tmp_path)
+
+    _, job = load_input_jobs(str(prepared))[0]
+    assert job["sequences"][0]["ligand"]["ligand"] == f"FILE_{job_dir / 'local.sdf'}"

@@ -229,7 +229,7 @@ class DataDumper:
         for idx, summary in enumerate(data["summary_confidence"]):
             output_fpath = os.path.join(
                 summary_dir,
-                f"seed-{seed}_sample-{idx}_summary_confidence.json",
+                f"seed-{seed}_sample-{idx}_summary_confidences.json",
             )
             save_json(summary, output_fpath, indent=4)
             if self.need_atom_confidence:

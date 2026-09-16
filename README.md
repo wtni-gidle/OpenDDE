@@ -205,7 +205,7 @@ The data stage writes `output/tiny/tiny_data.json`. Predictions use the job's
 ```text
 output/tiny/
 ├── models/seed-101_sample-0_model.cif
-├── summary_confidences/seed-101_sample-0_summary_confidence.json
+├── summary_confidences/seed-101_sample-0_summary_confidences.json
 └── full_data/seed-101_sample-0_full_data.json
 ```
 
@@ -257,8 +257,10 @@ A prepared protein bundle with chain ID `A` contains:
     └── <name>__A_template_0.cif
 ```
 
-Only supplied or generated resources are included. Paths are relative to their
-JSON file, so the whole job directory can be moved. You can replace the prepared
+Only supplied or generated MSA/template resources are included. Their paths are
+relative to the JSON file, so the whole job directory can be moved. `FILE_`
+ligands remain caller-managed external files, recorded with absolute paths in
+the prepared JSON. You can replace the prepared
 unpaired A3M in place and keep the paired A3M and templates for inference-only.
 The existing `msa_pair_as_unpair=true` default also merges paired rows into the
 unpaired pool and deduplicates them.

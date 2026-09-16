@@ -50,6 +50,11 @@ def resolve_job_paths(job: dict[str, Any], json_path: Path) -> dict[str, Any]:
         rna = sequence.get("rnaSequence")
         if isinstance(rna, dict) and isinstance(rna.get("unpairedMsaPath"), str):
             rna["unpairedMsaPath"] = _resolve_path(rna["unpairedMsaPath"], json_path)
+        ligand = sequence.get("ligand")
+        if isinstance(ligand, dict):
+            value = ligand.get("ligand")
+            if isinstance(value, str) and value.startswith("FILE_"):
+                ligand["ligand"] = "FILE_" + _resolve_path(value[5:], json_path)
     return resolved
 
 
@@ -98,7 +103,7 @@ def _copy_resource(
 
 
 def write_prepared_job(job: dict[str, Any], out_dir: str | PathLike[str]) -> str:
-    """Copy bundle resources for one job and write its single-item input JSON."""
+    """Copy MSA/template resources and write JSON; FILE_ ligands stay external."""
     prepared = deepcopy(validate_inference_jobs([job])[0])
     job_dir = Path(out_dir) / prepared["name"]
     msa_dir = job_dir / "msas"

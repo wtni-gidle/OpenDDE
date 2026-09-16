@@ -36,7 +36,7 @@ def _sample_paths(root: Path, job: str, seed: int, sample: int) -> dict[str, Pat
     return {
         "model": job_dir / "models" / f"{prefix}_model.cif",
         "summary": (
-            job_dir / "summary_confidences" / f"{prefix}_summary_confidence.json"
+            job_dir / "summary_confidences" / f"{prefix}_summary_confidences.json"
         ),
         "full": job_dir / "full_data" / f"{prefix}_full_data.json",
     }

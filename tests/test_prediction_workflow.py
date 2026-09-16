@@ -285,7 +285,8 @@ def test_inference_resolves_prepared_resources_before_dataset(tmp_path, monkeypa
                                 }
                             ],
                         }
-                    }
+                    },
+                    {"ligand": {"ligand": "FILE_ligand.sdf", "count": 1}},
                 ],
             }
         ],
@@ -306,4 +307,7 @@ def test_inference_resolves_prepared_resources_before_dataset(tmp_path, monkeypa
     chain = seen[0]["sequences"][0]["proteinChain"]
     assert chain["unpairedMsaPath"] == str(tmp_path / "msas" / "a.a3m")
     assert chain["templates"][0]["mmcifPath"] == str(tmp_path / "msas" / "a.cif")
+    assert seen[0]["sequences"][1]["ligand"]["ligand"] == (
+        f"FILE_{tmp_path / 'ligand.sdf'}"
+    )
     assert list(tmp_path.rglob("*.json")) == [source]

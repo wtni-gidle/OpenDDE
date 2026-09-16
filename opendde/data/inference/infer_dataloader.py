@@ -172,7 +172,13 @@ class InferenceDataset(Dataset):
             with open(self.input_json_path, "r") as f:
                 inputs = validate_inference_jobs(json.load(f))
         self.inputs = cast(list[dict[str, Any]], inputs)
-        if self.use_template:
+        needs_legacy_templates = any(
+            chain.get("templates") is None and bool(chain.get("templatesPath"))
+            for job in self.inputs
+            for sequence in job.get("sequences", [])
+            if (chain := sequence.get("proteinChain")) is not None
+        )
+        if self.use_template and needs_legacy_templates:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
             fetch_remote = configs.data.template.get("fetch_remote", True)
             if not fetch_remote:

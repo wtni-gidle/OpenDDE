@@ -85,14 +85,19 @@ protein chain ID `A` contains the supplied or generated files below:
 
 The data stage writes only one final JSON per job. Search scratch files live in
 a temporary directory that is removed before return. Prepared paths are
-relative to `_data.json`; move the whole job directory to move its resources.
+relative to `_data.json`; move the whole job directory to move its MSA/template
+resources. `FILE_` ligand files remain external absolute references; the caller
+must keep them accessible or update their paths after moving to another machine.
 An entity with `id: ["A", "B"]` shares one MSA pair named using `A`.
 
 Inference-only accepts a prepared JSON directly, or a directory searched
 recursively for `*_data.json` bundles. It does not search or rewrite JSON.
-When the bundle contains explicit templates, template use requires no HMMER,
-Kalign, template database, or PDBe access during inference. Model checkpoints
-and common runtime assets are still required.
+When every protein chain uses explicit templates or `templates: []`, template
+use requires no HMMER, Kalign, template database, or PDBe access during inference,
+including with `data.template.fetch_remote=false`. A chain using a non-empty
+legacy `templatesPath` still initializes the hit-processing machinery and needs
+the configured database or remote fetching. Model checkpoints and common
+runtime assets are still required.
 
 ## Protein MSA and pairing
 

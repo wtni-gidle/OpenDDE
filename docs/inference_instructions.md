@@ -372,7 +372,7 @@ Prediction writes directly under the requested `-o` directory:
 ```text
 <out>/<name>/
 ├── models/seed-101_sample-0_model.cif
-├── summary_confidences/seed-101_sample-0_summary_confidence.json
+├── summary_confidences/seed-101_sample-0_summary_confidences.json
 └── full_data/seed-101_sample-0_full_data.json
 ```
 

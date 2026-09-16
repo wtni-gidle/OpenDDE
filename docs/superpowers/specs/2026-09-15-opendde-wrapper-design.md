@@ -125,7 +125,7 @@ Prediction output is written directly in the AF3-Pro-style layout:
 ├── models/
 │   └── seed-101_sample-0_model.cif
 ├── summary_confidences/
-│   └── seed-101_sample-0_summary_confidence.json
+│   └── seed-101_sample-0_summary_confidences.json
 └── full_data/
     └── seed-101_sample-0_full_data.json
 ```

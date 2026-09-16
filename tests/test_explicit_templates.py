@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Aureka AI Research
+import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 from biotite.structure import AtomArray
+from ml_collections import ConfigDict
 
 from opendde.data.template.template_featurizer import InferenceTemplateFeaturizer
 from opendde.data.template.template_parser import TemplateHit, TemplateSearchResult
@@ -264,3 +266,91 @@ def test_update_leaves_explicit_empty_templates_untouched():
 
     jobs = [{"sequences": [{"proteinChain": {"sequence": "AAAAAAA", "templates": []}}]}]
     assert not update_template_info(jobs)
+
+
+def _dataset_config(tmp_path, *, fetch_remote=False):
+    return ConfigDict(
+        {
+            "input_json_path": str(tmp_path / "job_data.json"),
+            "dump_dir": str(tmp_path / "out"),
+            "use_msa": False,
+            "use_template": True,
+            "data": {
+                "ccd_components_file": None,
+                "ccd_components_rdkit_mol_file": None,
+                "template": {
+                    "prot_template_mmcif_dir": str(tmp_path / "missing_database"),
+                    "prot_template_cache_dir": None,
+                    "kalign_binary_path": None,
+                    "release_dates_path": None,
+                    "obsolete_pdbs_path": None,
+                    "fetch_remote": fetch_remote,
+                },
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("fetch_remote", [False, True])
+def test_dataset_explicit_templates_need_no_database_or_online_featurizer(
+    tmp_path, empty, fetch_remote
+):
+    """Prepared local mappings must work even with remote fetching disabled."""
+    from opendde.data.inference.infer_dataloader import InferenceDataset
+
+    path = tmp_path / "tiny.cif"
+    path.write_text(_cif())
+    sequences = [
+        {
+            "proteinChain": {
+                "sequence": "AAAAAAA",
+                "count": 1,
+                "templates": []
+                if empty
+                else [
+                    {
+                        "mmcifPath": str(path),
+                        "queryIndices": list(range(7)),
+                        "templateIndices": list(range(7)),
+                    }
+                ],
+                "templatesPath": "ignored_legacy.a3m",
+            }
+        }
+    ]
+    configs = _dataset_config(tmp_path, fetch_remote=fetch_remote)
+    Path(configs.input_json_path).write_text(
+        json.dumps([{"name": "job", "sequences": sequences}])
+    )
+    dataset = InferenceDataset(configs)
+    assert dataset.online_template_featurizer is None
+    assert not (tmp_path / "missing_database").exists()
+    result = InferenceTemplateFeaturizer.make_template_feature(
+        sequences,
+        _atoms(),
+        online_template_featurizer=dataset.online_template_featurizer,
+    )
+    assert int(result["template_atom_mask"].sum()) == (0 if empty else 7)
+
+
+def test_dataset_mixed_templates_still_requires_and_constructs_legacy_featurizer(
+    tmp_path,
+):
+    from opendde.data.inference.infer_dataloader import InferenceDataset
+
+    inputs = [
+        {
+            "name": "job",
+            "sequences": [
+                {"proteinChain": {"sequence": "AAAAAAA", "templates": []}},
+                {"proteinChain": {"sequence": "AAAAAAA", "templatesPath": "hits.a3m"}},
+            ],
+        }
+    ]
+    configs = _dataset_config(tmp_path)
+    with pytest.raises(AssertionError, match="mmcif directory"):
+        InferenceDataset(configs, inputs=inputs)
+    (tmp_path / "missing_database").mkdir()
+    dataset = InferenceDataset(configs, inputs=inputs)
+    assert isinstance(dataset.online_template_featurizer, TemplateHitFeaturizer)

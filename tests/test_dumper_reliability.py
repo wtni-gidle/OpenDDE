@@ -84,7 +84,7 @@ def test_dump_uses_original_sample_indices_and_preserves_other_seeds(
             summary = (
                 job_dir
                 / "summary_confidences"
-                / (f"seed-{seed}_sample-{index}_summary_confidence.json")
+                / (f"seed-{seed}_sample-{index}_summary_confidences.json")
             )
             assert json.loads(summary.read_text()) == {"ranking_score": score}
             full_data = (
@@ -130,7 +130,7 @@ def test_dump_omits_full_data_directory_when_disabled(tmp_path, atom_array):
         if path.is_file()
     } == {
         "models/seed-1_sample-0_model.cif",
-        "summary_confidences/seed-1_sample-0_summary_confidence.json",
+        "summary_confidences/seed-1_sample-0_summary_confidences.json",
     }
     assert not (tmp_path / "job" / "full_data").exists()
 

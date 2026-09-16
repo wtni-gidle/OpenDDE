@@ -165,6 +165,11 @@ using it.
 - A 3D ligand file prefixed with `FILE_` (`.pdb`, `.sdf`, `.mol`, `.mol2`).
 - A SMILES string.
 
+For `FILE_` ligands, the path after the prefix resolves relative to the owning
+JSON file. Preparation keeps an absolute `FILE_` reference in `_data.json`;
+the ligand file stays external and is not copied into `msas/`. Keep that file
+accessible, or update the reference when moving to another machine.
+
 ## `ion`
 
 ```json
@@ -241,7 +246,7 @@ Prediction writes directly under the requested output directory:
 ```text
 <out>/<name>/
 ├── models/seed-101_sample-0_model.cif
-├── summary_confidences/seed-101_sample-0_summary_confidence.json
+├── summary_confidences/seed-101_sample-0_summary_confidences.json
 └── full_data/seed-101_sample-0_full_data.json
 ```
 
