@@ -93,7 +93,7 @@ def test_write_prepared_job_makes_portable_target_bundle(tmp_path: Path):
     source_json, _, contents = _write_fixture_input(tmp_path)
     _, job = load_input_jobs(str(source_json))[0]
 
-    prepared = write_prepared_job(job, tmp_path / "out")
+    prepared = write_prepared_job(job, tmp_path / "out", compress_fold_input=False)
     job_dir = tmp_path / "out" / "target"
     loaded = json.loads(Path(prepared).read_text())
 
@@ -157,7 +157,7 @@ def test_write_prepared_job_assigns_fallback_labels_without_overwriting_msa(
         ],
     }
 
-    prepared = write_prepared_job(job, tmp_path / "out")
+    prepared = write_prepared_job(job, tmp_path / "out", compress_fold_input=False)
     job_dir = tmp_path / "out" / "mixed"
     loaded = json.loads(Path(prepared).read_text())
 
@@ -262,9 +262,7 @@ def test_compressed_bundle_transcodes_plain_and_zstd_resources_once(tmp_path: Pa
         ],
     }
 
-    prepared_path = Path(
-        write_prepared_job(job, tmp_path / "output", compress_fold_input=True)
-    )
+    prepared_path = Path(write_prepared_job(job, tmp_path / "output"))
     prepared = json.loads(prepared_path.read_text())[0]
     chain = prepared["sequences"][0]["proteinChain"]
     assert chain["unpairedMsaPath"] == "msas/compressed__A_unpairedmsa.a3m.zst"

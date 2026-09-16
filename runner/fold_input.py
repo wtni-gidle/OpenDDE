@@ -115,7 +115,7 @@ def write_prepared_job(
     job: dict[str, Any],
     out_dir: str | PathLike[str],
     *,
-    compress_fold_input: bool = False,
+    compress_fold_input: bool = True,
 ) -> str:
     """Copy MSA/template resources and write JSON; FILE_ ligands stay external."""
     prepared = deepcopy(validate_inference_jobs([job])[0])
