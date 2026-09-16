@@ -44,9 +44,12 @@ Protein entities keep native fields such as `sequence`, `count`, `id`,
 `pairedMsaPath`, and `unpairedMsaPath`. An entity with `id: ["A", "B"]`
 shares one entity-level paired/unpaired MSA pair, named with the first ID.
 
-Relative resource paths in a source JSON are resolved relative to that JSON.
-Paths in a prepared JSON are relative to the prepared JSON. This removes any
-dependency on the launch working directory.
+Relative protein MSA/template paths, RNA MSA paths, and `FILE_` ligand paths
+resolve relative to their source JSON, independently of the launch working
+directory. In prepared JSON, copied MSA/template resources (including RNA MSA)
+use paths relative to that JSON and move with the whole job directory. `FILE_`
+ligand files remain caller-managed absolute external references; keep them
+accessible or update their paths after moving to another machine.
 
 ## Template contract
 

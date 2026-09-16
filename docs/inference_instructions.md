@@ -231,9 +231,12 @@ For a protein entity with ID `A`, preparation writes:
     └── <name>__A_template_0.cif
 ```
 
-Only supplied/generated resources appear. The single-job JSON uses paths
-relative to itself, so move the entire job directory together. Search scratch
-files are temporary; the data stage writes one final JSON per job.
+Only supplied/generated MSA/template resources appear, including RNA MSA.
+The single-job JSON refers to these copied resources with relative paths;
+move the entire job directory together to preserve them. `FILE_` ligand files
+remain caller-managed absolute external references. Keep those files accessible
+or update their paths after moving to another machine. Search scratch files are
+temporary; the data stage writes one final JSON per job.
 Inference-only accepts the prepared JSON directly or recursively discovers only
 `*_data.json` bundles in a directory. It runs no searches and does not rewrite
 the input JSON. Keep the relevant `--use_*` flags enabled to consume features.
