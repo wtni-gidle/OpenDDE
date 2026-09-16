@@ -83,6 +83,9 @@ protein chain ID `A` contains the supplied or generated files below:
     └── <name>__A_template_0.cif
 ```
 
+This shows `--compress_fold_input false`. The default prepared suffixes are
+`.a3m.zst` and `.cif.zst`; content magic, not the suffix, selects decompression.
+
 The data stage writes only one final JSON per job. Search scratch files live in
 a temporary directory that is removed before return. Prepared paths are
 relative to `_data.json`; move the whole job directory to move its MSA/template
@@ -123,8 +126,9 @@ contract.
 
 ### Replace only unpaired MSA
 
-After preparation, replace `<name>__A_unpairedmsa.a3m` in place, leaving the
-paired A3M and template files unchanged. Alternatively, edit `unpairedMsaPath`
+After preparation, replace `<name>__A_unpairedmsa.a3m.zst` in place (plain A3M
+text is accepted), leaving the paired A3M and template files unchanged.
+Alternatively, edit `unpairedMsaPath`
 in the prepared JSON; relative paths still resolve from that JSON. Run
 inference-only (`-D false -P true`) with `--use_msa true` to consume the change.
 The two MSA paths are read independently. The existing
@@ -181,7 +185,7 @@ opendde prep -i my_rna_job.json -o ./output \
 Output:
 
 ```text
-<out>/<name>/msas/<name>__R_unpairedmsa.a3m
+<out>/<name>/msas/<name>__R_unpairedmsa.a3m.zst
 ```
 
 For RNA entity ID `R`, the prepared JSON points `unpairedMsaPath` to that file.

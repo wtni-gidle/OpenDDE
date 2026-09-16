@@ -231,6 +231,11 @@ For a protein entity with ID `A`, preparation writes:
     └── <name>__A_template_0.cif
 ```
 
+The plain names above use `--compress_fold_input false`. By default `pred` and
+`prep` append `.zst` and write standard zstd frames. Readers detect compression
+from magic bytes, so a manually replaced plain A3M is valid even if its path
+still ends in `.zst`.
+
 Only supplied/generated MSA/template resources appear, including RNA MSA.
 The single-job JSON refers to these copied resources with relative paths;
 move the entire job directory together to preserve them. `FILE_` ligand files
@@ -385,10 +390,15 @@ are part of every filename. `full_data/` is written only with
 where the data stage wrote them, even when inference uses a different output
 directory.
 
+With `--compress_full_confidence true`, the detailed path ends in `.npz`.
+Each NPZ key is an existing OpenDDE full-confidence field stored as a primitive
+NumPy array and can be loaded with `numpy.load(path, allow_pickle=False)`.
+
 For lightweight resume, pass `--skip true`. OpenDDE checks each requested
 job/seed and original sample index: the model CIF must be non-empty, summary
 confidence must be a non-empty JSON object, and `full_data` must also be a
-non-empty JSON object when atom confidence is enabled. Complete seeds are
+readable non-empty JSON object or NPZ archive in the selected format when atom
+confidence is enabled. Complete seeds are
 skipped and incomplete or corrupt seeds are recomputed in request order. The
 default `--skip false` always recomputes and does not inspect existing prediction
 outputs; data-only runs never inspect them either.
@@ -415,7 +425,9 @@ warning and does not enable delayed caching.
 | `--use_template` | Use/generate template features. |
 | `--max_template_date` | Automatic data-stage template cutoff, default `2021-09-30`. Explicit templates bypass it. |
 | `--use_rna_msa` | Use/generate RNA MSA features; requires `--use_msa true`. |
-| `--need_atom_confidence` | Write detailed confidence JSONs in `full_data/`; default `true`. |
+| `--need_atom_confidence` | Write detailed confidence in `full_data/`; default `true`. |
+| `--compress_fold_input` | Write prepared MSA/template text as `.zst`; default `true`. Plain text manually placed under that suffix is still readable. |
+| `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `false`. |
 | `--skip` | Skip complete job/seed outputs; boolean, default `false`. |
 | `--write_now` | Compatibility flag, default `true`; writes remain synchronous when set to `false`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |

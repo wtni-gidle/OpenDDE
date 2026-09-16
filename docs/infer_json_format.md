@@ -231,6 +231,11 @@ single-job JSON and copies supplied/generated resources:
     └── <name>__A_template_0.cif
 ```
 
+By default the prepared resource names add `.zst` (`.a3m.zst` and `.cif.zst`).
+Use `--compress_fold_input false` for the plain layout shown above. Compression
+is detected from file content, so a plain replacement MSA remains readable even
+when its prepared path still ends in `.zst`.
+
 Resources appear only when supplied or generated. Unknown JSON fields and
 unrelated entity fields are preserved. RNA MSA uses the same `msas/` directory
 and `<name>__<entity-ID>_unpairedmsa.a3m` naming.
@@ -254,6 +259,9 @@ Sample numbers are original diffusion sample indices, not confidence ranks.
 Seeds are included in filenames. `full_data/` is written only with
 `--need_atom_confidence true` (the default). If inference uses a different output
 directory from preparation, the prepared bundle stays in its original location.
+
+`--compress_full_confidence true` changes only the detailed confidence suffix to
+`.npz`; model CIFs and summary-confidence JSONs retain their existing formats.
 
 The summary JSON includes confidence metrics such as `plddt`, `gpde`, `ptm`,
 `iptm`, clash flags, and `ranking_score` when available.

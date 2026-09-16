@@ -215,6 +215,9 @@ Use `--skip true` to skip job/seed combinations whose required canonical files
 are present and readable; incomplete or corrupt seeds are recomputed. The
 `--write_now` compatibility option defaults to `true`; OpenDDE always writes
 each prediction synchronously, including when `false` is supplied.
+Pass `--compress_full_confidence true` to write the detailed file as `.npz`
+instead. Resume checks require the selected format, and a successful rerun
+removes the stale JSON/NPZ alternate.
 
 For production runs, enable the preprocessing features you need, for example
 `--use_msa true`, `--use_template true`, or `--use_rna_msa true`. Those paths may
@@ -239,6 +242,9 @@ opendde pred -i input.json -o ./output --use_template true
 
 # Data-only convenience: protein MSA, templates, and RNA MSA when present
 opendde prep -i input.json -o ./output
+
+# Equivalent convenience runner; OPENDDE_BIN selects your environment command
+./run_opendde.sh -i input.json -o ./output -D true -P false
 ```
 
 Use your own `input.json`; `my_job` above is its job's `name`. Data-only never
@@ -256,6 +262,11 @@ A prepared protein bundle with chain ID `A` contains:
     ├── <name>__A_unpairedmsa.a3m
     └── <name>__A_template_0.cif
 ```
+
+Those plain suffixes are produced with `--compress_fold_input false`. The
+default is zstd-compressed `.a3m.zst` / `.cif.zst`. Readers inspect magic bytes,
+so replacing an unpaired `.a3m.zst` in place with ordinary A3M text is allowed;
+the suffix alone does not force decompression.
 
 Only supplied or generated MSA/template resources are included. Their paths are
 relative to the JSON file, so the whole job directory can be moved. `FILE_`
