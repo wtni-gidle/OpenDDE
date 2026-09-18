@@ -206,7 +206,7 @@ The data stage writes `output/tiny/tiny_data.json`. Predictions use the job's
 output/tiny/
 ├── models/seed-101_sample-0_model.cif
 ├── summary_confidences/seed-101_sample-0_summary_confidences.json
-└── full_data/seed-101_sample-0_full_data.json
+└── full_data/seed-101_sample-0_full_data.npz
 ```
 
 Sample numbers are original diffusion sample indices, not confidence ranks.
@@ -214,9 +214,9 @@ Sample numbers are original diffusion sample indices, not confidence ranks.
 Use `--skip true` to skip job/seed combinations whose required canonical files
 are present and readable; incomplete or corrupt seeds are recomputed. The
 prediction files are written synchronously before each job/seed completes.
-Pass `--compress_full_confidence true` to write the detailed file as `.npz`
-instead. Resume checks require the selected format, and a successful rerun
-removes the stale JSON/NPZ alternate.
+Detailed confidence defaults to compressed NPZ; pass
+`--compress_full_confidence false` to select JSON. Resume checks require the
+selected format, and a successful rerun removes the stale JSON/NPZ alternate.
 
 For production runs, enable the preprocessing features you need, for example
 `--use_msa true`, `--use_template true`, or `--use_rna_msa true`. Those paths may

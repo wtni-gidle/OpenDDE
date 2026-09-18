@@ -381,7 +381,7 @@ Prediction writes directly under the requested `-o` directory:
 <out>/<name>/
 ├── models/seed-101_sample-0_model.cif
 ├── summary_confidences/seed-101_sample-0_summary_confidences.json
-└── full_data/seed-101_sample-0_full_data.json
+└── full_data/seed-101_sample-0_full_data.npz
 ```
 
 Filenames use the original diffusion sample index, not confidence rank. Seeds
@@ -390,7 +390,8 @@ are part of every filename. `full_data/` is written only with
 where the data stage wrote them, even when inference uses a different output
 directory.
 
-With `--compress_full_confidence true`, the detailed path ends in `.npz`.
+The detailed path defaults to `.npz`; use `--compress_full_confidence false`
+to select JSON.
 Each NPZ key is an existing OpenDDE full-confidence field stored as a primitive
 NumPy array and can be loaded with `numpy.load(path, allow_pickle=False)`.
 
@@ -425,7 +426,7 @@ OpenDDE writes every job/seed synchronously; there is no delayed-write mode.
 | `--use_rna_msa` | Use/generate RNA MSA features; requires `--use_msa true`. |
 | `--need_atom_confidence` | Write detailed confidence in `full_data/`; default `true`. |
 | `--compress_fold_input` | Write prepared MSA/template text as `.zst`; default `true`. Plain text manually placed under that suffix is still readable. |
-| `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `false`. |
+| `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `true`. |
 | `--skip` | Skip complete job/seed outputs; boolean, default `false`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |
 | `--foldcp_mode` | `single` or `distributed`; use `distributed` with `torchrun` for multi-GPU Fold-CP inference. |

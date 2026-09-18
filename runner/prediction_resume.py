@@ -76,7 +76,7 @@ def seed_outputs_complete(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
 ) -> bool:
     """Return whether one job/seed has every requested canonical output."""
     if isinstance(num_samples, bool) or not isinstance(num_samples, int):
@@ -132,7 +132,7 @@ def incomplete_job_seed_schedule(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
 ) -> list[list[int]]:
     """Return incomplete seeds for each job without changing requested order."""
     if len(jobs) != len(job_seed_schedule):

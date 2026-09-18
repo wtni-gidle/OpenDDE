@@ -159,6 +159,7 @@ def test_incomplete_schedule_preserves_per_job_seed_order(tmp_path):
         schedule,
         2,
         need_atom_confidence=True,
+        compress_full_confidence=False,
     ) == [[9, 5], [3]]
 
 
@@ -435,26 +436,28 @@ def test_cli_forwards_compression_defaults_and_overrides(tmp_path, monkeypatch):
     )
     assert default_result.exit_code == 0, default_result.output
     assert captured["compress_fold_input"] is True
-    assert captured["compress_full_confidence"] is False
+    assert captured["compress_full_confidence"] is True
     captured.clear()
 
-    result = CliRunner().invoke(
-        batch_inference.predict,
-        [
-            "--input",
-            str(tmp_path / "input.json"),
-            "--run_data_pipeline",
-            "false",
-            "--compress_fold_input",
-            "false",
-            "--compress_full_confidence",
-            "true",
-        ],
-    )
+    for compression_value, expected in (("false", False), ("true", True)):
+        captured.clear()
+        result = CliRunner().invoke(
+            batch_inference.predict,
+            [
+                "--input",
+                str(tmp_path / "input.json"),
+                "--run_data_pipeline",
+                "false",
+                "--compress_fold_input",
+                "false",
+                "--compress_full_confidence",
+                compression_value,
+            ],
+        )
 
-    assert result.exit_code == 0, result.output
-    assert captured["compress_fold_input"] is False
-    assert captured["compress_full_confidence"] is True
+        assert result.exit_code == 0, result.output
+        assert captured["compress_fold_input"] is False
+        assert captured["compress_full_confidence"] is expected
 
     help_result = CliRunner().invoke(batch_inference.predict, ["--help"])
     assert help_result.exit_code == 0

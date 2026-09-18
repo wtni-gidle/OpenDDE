@@ -108,6 +108,45 @@ def test_run_opendde_help_and_shell_syntax():
     assert "--compress_full_confidence" in help_result.stdout
 
 
+def test_run_opendde_compression_default_and_explicit_false(tmp_path: Path):
+    input_path = tmp_path / "input.json"
+    input_path.write_text("[]", encoding="utf-8")
+    captured = tmp_path / "args.txt"
+    fake = tmp_path / "fake-opendde"
+    fake.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURED_ARGS"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "OPENDDE_BIN": str(fake),
+        "CAPTURED_ARGS": str(captured),
+    }
+
+    for extra_args, expected in (([], "true"), (["-f", "false"], "false")):
+        result = subprocess.run(
+            [
+                "bash",
+                "run_opendde.sh",
+                "-i",
+                str(input_path),
+                "-o",
+                str(tmp_path / "out"),
+                *extra_args,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+        assert result.returncode == 0, result.stderr
+        arguments = captured.read_text().splitlines()
+        option = arguments.index("--compress_full_confidence")
+        assert arguments[option + 1] == expected
+
+
 def test_run_opendde_rejects_removed_write_now_option(tmp_path: Path):
     input_path = tmp_path / "input.json"
     input_path.write_text("[]", encoding="utf-8")

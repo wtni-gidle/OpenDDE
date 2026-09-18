@@ -251,7 +251,7 @@ Prediction writes directly under the requested output directory:
 <out>/<name>/
 ├── models/seed-101_sample-0_model.cif
 ├── summary_confidences/seed-101_sample-0_summary_confidences.json
-└── full_data/seed-101_sample-0_full_data.json
+└── full_data/seed-101_sample-0_full_data.npz
 ```
 
 Sample numbers are original diffusion sample indices, not confidence ranks.
@@ -259,8 +259,9 @@ Seeds are included in filenames. `full_data/` is written only with
 `--need_atom_confidence true` (the default). If inference uses a different output
 directory from preparation, the prepared bundle stays in its original location.
 
-`--compress_full_confidence true` changes only the detailed confidence suffix to
-`.npz`; model CIFs and summary-confidence JSONs retain their existing formats.
+Detailed confidence defaults to compressed NPZ. Set
+`--compress_full_confidence false` to select JSON; model CIFs and
+summary-confidence JSONs retain their existing formats.
 
 The summary JSON includes confidence metrics such as `plddt`, `gpde`, `ptm`,
 `iptm`, clash flags, and `ranking_score` when available.

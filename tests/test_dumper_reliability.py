@@ -37,6 +37,41 @@ def _minimal_prediction():
     }
 
 
+def test_omitted_compression_defaults_to_npz(tmp_path, atom_array):
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    prediction = _minimal_prediction()
+    prediction["full_data"] = [
+        {
+            "atom_plddt": torch.tensor([0.8765], dtype=torch.float32),
+            "token_pair_pae": np.array([[0.254]], dtype=np.float32),
+            "token_asym_id": np.array([1], dtype=np.int64),
+        }
+    ]
+
+    DataDumper(str(tmp_path), need_atom_confidence=True).dump(
+        group_name="",
+        pdb_id="job",
+        seed=7,
+        pred_dict=prediction,
+        atom_array=atom_array,
+        entity_poly_type={"1": "polypeptide(L)"},
+    )
+
+    full = tmp_path / "job/full_data/seed-7_sample-0_full_data.npz"
+    assert full.is_file()
+    assert not full.with_suffix(".json").exists()
+    with ZipFile(full) as archive:
+        assert all(
+            item.compress_type == ZIP_DEFLATED for item in archive.infolist()
+        )
+    with np.load(full, allow_pickle=False) as archive:
+        assert set(archive.files) == set(prediction["full_data"][0])
+        assert archive["token_asym_id"].dtype == np.dtype("int64")
+        assert archive["token_pair_pae"].dtype == np.dtype("float32")
+        np.testing.assert_allclose(archive["atom_plddt"], [0.88])
+
+
 @pytest.mark.parametrize("sorted_by_ranking_score", [True, False])
 def test_dump_uses_original_sample_indices_and_preserves_other_seeds(
     tmp_path, atom_array, sorted_by_ranking_score
@@ -45,6 +80,7 @@ def test_dump_uses_original_sample_indices_and_preserves_other_seeds(
         str(tmp_path),
         need_atom_confidence=True,
         sorted_by_ranking_score=sorted_by_ranking_score,
+        compress_full_confidence=False,
     )
     prediction = {
         "coordinate": torch.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]]),

@@ -143,7 +143,7 @@ def _all_requested_outputs_complete(
     n_sample: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
 ) -> bool:
     """Check deterministic requested schedules before loading the model."""
     cli_seeds = (
@@ -442,7 +442,7 @@ def get_default_runner(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
     skip: bool = False,
     device: InferenceDevice = "auto",
 ) -> InferenceRunner:
@@ -618,7 +618,7 @@ def run_prediction_workflow(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     max_template_date: str = "2021-09-30",
@@ -944,7 +944,7 @@ inference_jsons = run_prediction_workflow
 @click.option(
     "--compress_full_confidence",
     type=bool,
-    default=False,
+    default=True,
     help="Write detailed confidence as compressed NPZ instead of JSON.",
 )
 @click.option(

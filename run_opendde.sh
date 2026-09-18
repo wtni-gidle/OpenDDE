@@ -17,7 +17,7 @@ Wrapper options:
   -m DATE   Automatic-template cutoff (default: 2021-09-30).
   -S BOOL   Skip complete job/seed outputs (default: false).
   -z BOOL   --compress_fold_input (default: true).
-  -f BOOL   --compress_full_confidence (default: false).
+  -f BOOL   --compress_full_confidence (default: true).
   -a BOOL   --need_atom_confidence (default: true).
   -h        Show this help.
 
@@ -35,7 +35,7 @@ sample="5"
 max_template_date="2021-09-30"
 skip="false"
 compress_fold_input="true"
-compress_full_confidence="false"
+compress_full_confidence="true"
 need_atom_confidence="true"
 
 while getopts ":i:o:D:P:r:s:m:S:z:f:a:h" option; do

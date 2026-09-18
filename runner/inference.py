@@ -922,7 +922,7 @@ def _incomplete_job_seed_schedule_synchronized(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
     world_control_group: dist.ProcessGroup | None = None,
 ) -> list[list[int]]:
     """Check resume outputs once and synchronize the selected job/seed schedule."""
@@ -1412,7 +1412,7 @@ class InferenceRunner(object):
         self,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
-        compress_full_confidence: bool = False,
+        compress_full_confidence: bool = True,
     ) -> None:
         """
         Initialize the data dumper for saving predictions.
@@ -1691,7 +1691,7 @@ def _infer_predict_impl(
                 _config_get(configs, "need_atom_confidence", False)
             ),
             compress_full_confidence=bool(
-                _config_get(configs, "compress_full_confidence", False)
+                _config_get(configs, "compress_full_confidence", True)
             ),
             world_control_group=world_control_group,
         )
