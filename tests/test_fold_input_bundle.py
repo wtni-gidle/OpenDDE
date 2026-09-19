@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 from opendde.utils.text_io import read_text, write_zstd_text_atomic
-from runner.fold_input import load_input_jobs, write_prepared_job
+from runner import msa_search
+from runner.fold_input import load_input_jobs, resolve_job_paths, write_prepared_job
 
 
 def _write_fixture_input(
@@ -86,6 +87,89 @@ def test_load_input_jobs_resolves_resource_paths_from_json_directory(
     assert protein["templatesPath"] == resource_paths["template_hits"]
     assert protein["templates"][0]["mmcifPath"] == resource_paths["template"]
     assert rna["unpairedMsaPath"] == resource_paths["rna"]
+
+
+def test_legacy_msa_directory_is_json_relative_before_native_conversion(
+    tmp_path: Path, monkeypatch
+):
+    source_dir = tmp_path / "source"
+    msa_dir = source_dir / "legacy msas"
+    msa_dir.mkdir(parents=True)
+    pairing = msa_dir / "pairing.a3m"
+    non_pairing = msa_dir / "non_pairing.a3m"
+    pairing.write_text(">paired\nACD\n")
+    non_pairing.write_text(">unpaired\nACD\n")
+    original_job = {
+        "name": "legacy",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "ACD",
+                    "count": 1,
+                    "msa": {"precomputed_msa_dir": "legacy msas"},
+                }
+            }
+        ],
+    }
+    source_json = source_dir / "input.json"
+    source_json.write_text(json.dumps([original_job]))
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    resolved_job = resolve_job_paths(original_job, source_json)
+    loaded_path, loaded_job = load_input_jobs(str(source_json))[0]
+    assert loaded_job == resolved_job
+    converted, format_converted = msa_search.convert_one_json_dict(resolved_job)
+    chain = converted["sequences"][0]["proteinChain"]
+
+    assert loaded_path == source_json
+    assert format_converted is True
+    assert chain["pairedMsaPath"] == str(pairing)
+    assert chain["unpairedMsaPath"] == str(non_pairing)
+    assert msa_search.need_msa_search(converted) is False
+    assert original_job["sequences"][0]["proteinChain"] == {
+        "sequence": "ACD",
+        "count": 1,
+        "msa": {"precomputed_msa_dir": "legacy msas"},
+    }
+    assert json.loads(source_json.read_text()) == [original_job]
+
+
+def test_legacy_msa_directory_preserves_absolute_and_empty_values(tmp_path: Path):
+    absolute_msa_dir = str(tmp_path / "absolute msas")
+    job = {
+        "name": "legacy",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "ACD",
+                    "msa": {"precomputed_msa_dir": absolute_msa_dir},
+                }
+            },
+            {
+                "proteinChain": {
+                    "sequence": "EFG",
+                    "msa": {"precomputed_msa_dir": ""},
+                }
+            },
+        ],
+    }
+
+    resolved = resolve_job_paths(job, tmp_path / "source" / "input.json")
+
+    assert resolved["sequences"][0]["proteinChain"]["msa"] == {
+        "precomputed_msa_dir": absolute_msa_dir
+    }
+    assert resolved["sequences"][1]["proteinChain"]["msa"] == {
+        "precomputed_msa_dir": ""
+    }
+    assert job["sequences"][0]["proteinChain"]["msa"] == {
+        "precomputed_msa_dir": absolute_msa_dir
+    }
+    assert job["sequences"][1]["proteinChain"]["msa"] == {
+        "precomputed_msa_dir": ""
+    }
 
 
 def test_write_prepared_job_makes_portable_target_bundle(tmp_path: Path):

@@ -47,6 +47,14 @@ def resolve_job_paths(job: dict[str, Any], json_path: Path) -> dict[str, Any]:
         protein = sequence.get("proteinChain")
         if isinstance(protein, dict):
             _resolve_chain_paths(protein, json_path)
+            msa = protein.get("msa")
+            if isinstance(msa, dict) and isinstance(
+                msa.get("precomputed_msa_dir"), str
+            ):
+                if msa["precomputed_msa_dir"]:
+                    msa["precomputed_msa_dir"] = _resolve_path(
+                        msa["precomputed_msa_dir"], json_path
+                    )
         rna = sequence.get("rnaSequence")
         if isinstance(rna, dict) and isinstance(rna.get("unpairedMsaPath"), str):
             rna["unpairedMsaPath"] = _resolve_path(rna["unpairedMsaPath"], json_path)
