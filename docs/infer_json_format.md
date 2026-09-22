@@ -96,11 +96,20 @@ Automatic selection respects `--max_template_date YYYY-MM-DD` (default
 semantics; the existing model assembly still uses at most four templates.
 Set `--use_template true` during inference to consume them.
 
-Legacy `templatesPath` accepts a hit file (`.a3m` or `.hhr`). With template
-preparation enabled and `templates` omitted or `null`, the wrapper finalizes
-those hits into explicit mmCIF files and residue mappings. Direct inference
-with a legacy hit file remains supported but may require Kalign and cached or
-remote mmCIFs. A non-`null` `templates` value takes precedence over `templatesPath`.
+Legacy `templatesPath` is rejected, including empty/null values and combinations
+with `templates`. Supply `templates` in the main JSON. Each entry accepts either
+inline `mmcif` text or `mmcifPath`, never both, and a single protein chain (no
+`chainId`). `queryIndices` and `templateIndices` must be equally long lists of
+unique, nonnegative integers within their full polymer sequences; unresolved
+residues retain their positions. Automatic search hits remain private data-stage
+intermediates, finalized into this same explicit format before prediction.
+
+For each MSA channel, inline `pairedMsa`/`unpairedMsa` and the corresponding
+`...Path` are alternatives. An empty inline string explicitly disables that
+channel. A supplied missing file is an error, not permission to search again.
+A protein with either channel supplied is protected from automatic MSA search
+writeback, even when another protein needs searching. Native search context and
+pairing rules are unchanged. RNA has only the native unpaired route.
 
 The complete [wrapper example](../examples/example_wrapper_input.json) has job
 name `wrapper_demo`, independent of its filename. Its relative resource files
@@ -257,7 +266,8 @@ Prediction writes directly under the requested output directory:
 Sample numbers are original diffusion sample indices, not confidence ranks.
 Seeds are included in filenames. `full_data/` is written only with
 `--need_atom_confidence true` (the default). If inference uses a different output
-directory from preparation, the prepared bundle stays in its original location.
+directory from preparation, the prepared bundle stays in its original location
+unless `--write_input_json true` explicitly requests a new snapshot there.
 
 Detailed confidence defaults to compressed NPZ. Set
 `--compress_full_confidence false` to select JSON; model CIFs and

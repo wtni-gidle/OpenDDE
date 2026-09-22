@@ -227,6 +227,12 @@ see the inference guide for details.
 
 `pred` runs both stages by default. To prepare portable inputs separately:
 
+`-J/--write_input_json` controls publication separately (unset follows `-D`).
+Use `-D true -J false` for private preparation plus prediction without publishing
+input resources, or `-D false -J true` to save supplied conditions without searches.
+Published MSA/mmCIF paths are relative to the JSON. Legacy `templatesPath` is no
+longer accepted; templates live in the main JSON as single-chain CIF plus indices.
+
 ```bash
 # Data only: enable the searches needed for your input
 opendde pred -i input.json -o ./output -D true -P false \
@@ -248,7 +254,8 @@ opendde prep -i input.json -o ./output
 
 Use your own `input.json`; `my_job` above is its job's `name`. Data-only never
 loads the model. Inference-only also accepts a directory and recursively finds
-only `*_data.json` bundles; it runs no searches and does not rewrite inputs.
+only `*_data.json` bundles; it runs no searches and, unless `-J true` is set,
+does not rewrite inputs.
 Both stage switches default to `true`; setting both to `false` is an error.
 
 A prepared protein bundle with chain ID `A` contains:
@@ -345,7 +352,7 @@ opendde pred    # prepare portable inputs and run inference; select stages with 
 opendde doctor  # inspect Python/CUDA/kernel setup
 opendde json    # convert PDB/CIF structures to OpenDDE JSON
 opendde msa     # legacy low-level protein MSA preprocessing
-opendde mt      # legacy low-level protein MSA + template preprocessing
+opendde mt      # portable protein MSA + explicit template preparation
 opendde prep    # portable data-only bundles: protein MSA + templates + RNA MSA
 ```
 

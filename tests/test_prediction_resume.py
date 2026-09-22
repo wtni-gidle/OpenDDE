@@ -129,22 +129,61 @@ def test_seed_outputs_require_requested_full_confidence_format(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("target", "contents"),
+    ("target", "contents", "complete"),
     [
-        ("model", b""),
-        ("summary", b""),
-        ("summary", b"not-json"),
-        ("summary", b"{}"),
-        ("full", b""),
-        ("full", b"[]"),
-        ("full", b"{}"),
+        ("model", b"", False),
+        ("summary", b"", False),
+        ("summary", b"not-json", True),
+        ("summary", b"{}", True),
+        ("full", b"", False),
+        ("full", b"[]", True),
+        ("full", b"{}", True),
     ],
 )
-def test_empty_or_corrupt_required_output_is_incomplete(tmp_path, target, contents):
+def test_only_zero_byte_required_output_is_incomplete(tmp_path, target, contents, complete):
     _write_complete_seed(tmp_path, "job", 8, 1)
     _sample_paths(tmp_path, "job", 8, 0)[target].write_bytes(contents)
 
-    assert not seed_outputs_complete(tmp_path, "job", 8, 1, need_atom_confidence=True)
+    assert seed_outputs_complete(tmp_path, "job", 8, 1, need_atom_confidence=True,
+                                 compress_full_confidence=False) is complete
+
+
+@pytest.mark.parametrize("compress", [False, True])
+def test_nonempty_outputs_are_never_opened(tmp_path, monkeypatch, compress):
+    for sample in range(2):
+        for path in _sample_paths(tmp_path, "job", 7, sample).values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"garbage")
+    def fail_open(*_args, **_kwargs):
+        pytest.fail("resume opened an output")
+    monkeypatch.setattr(Path, "open", fail_open)
+    monkeypatch.setattr("builtins.open", fail_open)
+    monkeypatch.setattr(np, "load", fail_open)
+    assert seed_outputs_complete(tmp_path, "job", 7, 2, need_atom_confidence=True,
+                                 compress_full_confidence=compress)
+
+
+@pytest.mark.parametrize("target", ["model", "summary", "full", "full_npz"])
+@pytest.mark.parametrize("damage", ["missing", "empty", "directory", "escape"])
+def test_damage_selects_only_affected_seed(tmp_path, target, damage):
+    compress = target == "full_npz"
+    for seed in (7, 8):
+        writer = _write_complete_npz_seed if compress else _write_complete_seed
+        writer(tmp_path, "job", seed, 2)
+    path = _sample_paths(tmp_path, "job", 8, 1)[target]
+    path.unlink()
+    if damage == "empty":
+        path.touch()
+    elif damage == "directory":
+        path.mkdir()
+    elif damage == "escape":
+        outside = tmp_path / "outside"
+        outside.write_bytes(b"nonempty")
+        path.symlink_to(outside)
+    assert incomplete_job_seed_schedule(
+        tmp_path, [{"name": "job", "sequences": [{"proteinChain": {"sequence": "CHANGED"}}]}],
+        [[7, 8]], 2, need_atom_confidence=True,
+        compress_full_confidence=compress) == [[8]]
 
 
 def test_incomplete_schedule_preserves_per_job_seed_order(tmp_path):
@@ -186,6 +225,8 @@ def test_all_complete_skips_before_runner_initialization(tmp_path, monkeypatch):
         n_sample=2,
         need_atom_confidence=False,
         skip=True,
+        n_step=99,
+        n_cycle=9,
     ) == [str(source)]
 
 
@@ -371,6 +412,70 @@ def test_direct_infer_predict_reruns_an_incomplete_seed(tmp_path, monkeypatch):
     assert reached_dataloader == [True]
 
 
+@pytest.mark.parametrize("damage", ["missing", "empty"])
+def test_partial_sample_reruns_entire_seed_and_preserves_completed_seed(
+    tmp_path, monkeypatch, damage
+):
+    source = _write_input(tmp_path / "input.json", [
+        {"name": "job", "modelSeeds": [7, 8], "sequences": []}
+    ])
+    output = tmp_path / "output"
+    for seed in (7, 8):
+        _write_complete_seed(output, "job", seed, 4, full_data=False)
+    path = _sample_paths(output, "job", 8, 3)["summary"]
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"")
+    preserved = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for sample in range(4)
+        for key, path in _sample_paths(output, "job", 7, sample).items()
+        if key in ("model", "summary")
+    }
+    configs = _AttrDict(
+        input_json_path=str(source), seeds=[], dump_dir=str(output),
+        sample_diffusion=SimpleNamespace(N_sample=2),
+        model=SimpleNamespace(N_model_seed=2),
+        skip_amp=SimpleNamespace(), deterministic=False,
+        need_atom_confidence=False, skip=True,
+    )
+    data = {"sample_name": "job", "sample_index": 0,
+            "N_asym": 1, "N_token": 1, "N_atom": 1, "N_msa": 1,
+            "input_feature_dict": {}, "entity_poly_type": {}}
+    dataset = [(data, None, "")]
+    sampler = inference.InferenceJobSampler(dataset, num_replicas=1, rank=0)
+    loader = torch.utils.data.DataLoader(dataset, sampler=sampler,
+                                        collate_fn=lambda batch: batch)
+    monkeypatch.setattr(inference, "_create_inference_dataloader_synchronized",
+                        lambda *_args: loader)
+    predicted = []
+    dumped = []
+
+    def predict(batch):
+        seed = int(batch["input_feature_dict"]["inference_seed"])
+        predicted.append((seed, configs.sample_diffusion.N_sample,
+                          configs.model.N_model_seed))
+        return {"samples": [0, 1, 2, 3]}
+
+    def dump(*, seed, pred_dict, **_kwargs):
+        dumped.append((seed, pred_dict["samples"]))
+        _write_complete_seed(output, "job", seed, 4, full_data=False)
+
+    runner = SimpleNamespace(
+        foldcp_config=SimpleNamespace(enabled=False),
+        foldcp_world_control_group=None, foldcp_control_group=None, foldcp_cp_rank=0,
+        error_dir=str(tmp_path / "errors"), device=torch.device("cpu"),
+        update_model_configs=lambda _configs: None, predict=predict,
+        dumper=SimpleNamespace(dump=dump),
+    )
+    inference.infer_predict(runner, configs)
+    assert predicted == [(8, 2, 2)]
+    assert dumped == [(8, [0, 1, 2, 3])]
+    assert all((path.read_bytes(), path.stat().st_mtime_ns) == before
+               for path, before in preserved.items())
+
+
 @pytest.mark.parametrize(
     ("extra_args", "expected_skip"),
     [
@@ -492,11 +597,11 @@ def test_prep_forwards_compress_fold_input(tmp_path, monkeypatch):
         lambda path: np.savez_compressed(path, bad=np.array([{"x": 1}], dtype=object)),
     ],
 )
-def test_corrupt_empty_or_object_npz_is_incomplete(tmp_path, writer):
+def test_nonempty_npz_content_is_not_validated(tmp_path, writer):
     _write_complete_npz_seed(tmp_path, "job", 11, 1)
     writer(_sample_paths(tmp_path, "job", 11, 0)["full_npz"])
 
-    assert not seed_outputs_complete(
+    assert seed_outputs_complete(
         tmp_path,
         "job",
         11,

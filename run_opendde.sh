@@ -12,6 +12,7 @@ Required:
 Wrapper options:
   -D BOOL   Run data pipeline (default: true).
   -P BOOL   Run inference (default: true).
+  -J BOOL   Write portable input JSON/resources (default: follows -D).
   -r LIST   One seed or comma-separated seeds.
   -s INT    Diffusion samples per seed (default: 5).
   -m DATE   Automatic-template cutoff (default: 2021-09-30).
@@ -30,6 +31,7 @@ input_path=""
 output_dir=""
 run_data_pipeline="true"
 run_inference="true"
+write_input_json=""
 seeds=""
 sample="5"
 max_template_date="2021-09-30"
@@ -38,12 +40,13 @@ compress_fold_input="true"
 compress_full_confidence="true"
 need_atom_confidence="true"
 
-while getopts ":i:o:D:P:r:s:m:S:z:f:a:h" option; do
+while getopts ":i:o:D:P:J:r:s:m:S:z:f:a:h" option; do
     case "$option" in
         i) input_path=$OPTARG ;;
         o) output_dir=$OPTARG ;;
         D) run_data_pipeline=$OPTARG ;;
         P) run_inference=$OPTARG ;;
+        J) write_input_json=$OPTARG ;;
         r) seeds=$OPTARG ;;
         s) sample=$OPTARG ;;
         m) max_template_date=$OPTARG ;;
@@ -90,6 +93,9 @@ command_args=(
     --compress_full_confidence "$compress_full_confidence"
     --need_atom_confidence "$need_atom_confidence"
 )
+if [[ -n $write_input_json ]]; then
+    command_args+=(--write_input_json "$write_input_json")
+fi
 if [[ -n $seeds ]]; then
     command_args+=(--seeds "$seeds")
 fi

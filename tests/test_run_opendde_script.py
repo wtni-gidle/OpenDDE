@@ -172,3 +172,31 @@ def test_run_opendde_rejects_removed_write_now_option(tmp_path: Path):
     )
 
     assert result.returncode == 2
+
+
+def test_run_opendde_forwards_independent_write_switch(tmp_path):
+    source = tmp_path / "input.json"
+    source.write_text("[]")
+    fake = tmp_path / "opendde"
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    fake.chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            "run_opendde.sh",
+            "-i",
+            str(source),
+            "-o",
+            str(tmp_path / "out"),
+            "-D",
+            "false",
+            "-J",
+            "true",
+        ],
+        env={"PATH": "/usr/bin:/bin", "OPENDDE_BIN": str(fake)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    args = result.stdout.splitlines()
+    assert args[args.index("--write_input_json") + 1] == "true"

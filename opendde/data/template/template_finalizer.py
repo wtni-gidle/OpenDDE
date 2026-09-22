@@ -21,6 +21,19 @@ from opendde.data.template.template_utils import (
 from opendde.utils.text_io import read_text
 
 
+def reject_cached_template_featurizer(
+    template_featurizer: TemplateHitFeaturizer | None,
+) -> None:
+    """Keep wrapper selection and export on the current CIF source."""
+    if template_featurizer is not None and template_featurizer._template_cache_dir:
+        raise ValueError(
+            "OpenDDE wrapper does not support template_cache_dir on a custom "
+            "template featurizer. Set it to None or ''; prepared templates "
+            "must be selected and exported from current CIF files. "
+            "Native cache tools are unaffected."
+        )
+
+
 def _filtered_loop(
     source: Mapping[str, Sequence[str]], prefix: str, indices: Sequence[int]
 ) -> dict[str, list[str]]:
@@ -128,6 +141,37 @@ def _single_chain_mmcif(mmcif: Any, auth_chain_id: str) -> str:
     return buffer.getvalue()
 
 
+def validate_explicit_template(query_sequence, entry, *, base_dir):
+    """Parse the public single-chain resource and validate full-sequence indices."""
+    # inference.__init__ imports the template featurizer; defer this dependency
+    # until template modules are fully initialized, without changing validation.
+    from opendde.data.inference.input_validation import validate_template_entry
+
+    validate_template_entry(entry, len(query_sequence))
+    path = Path(base_dir) / (entry.get("mmcifPath") or "inline.cif")
+    logical_path = path.with_suffix("") if path.suffix == ".zst" else path
+    parsed = TemplateParser.parse(
+        file_id=logical_path.stem,
+        mmcif_string=entry["mmcif"]
+        if entry.get("mmcif") is not None
+        else read_text(path),
+    )
+    mmcif = parsed.mmcif_object
+    if mmcif is None or not mmcif.chain_to_seqres:
+        raise ValueError(f"Could not parse protein template {path}: {parsed.errors}")
+    if len(mmcif.chain_to_seqres) != 1:
+        raise ValueError(f"Template {path} must be a single protein chain")
+    chain_id = next(iter(mmcif.chain_to_seqres))
+    validate_template_entry(
+        entry, len(query_sequence), len(mmcif.chain_to_seqres[chain_id])
+    )
+    entry_ids = mmcif.raw_string.get("_entry.id", [])
+    template_id = entry_ids[0] if entry_ids else logical_path.stem
+    if template_id in (".", "?"):
+        template_id = logical_path.stem
+    return mmcif, chain_id, template_id
+
+
 def load_explicit_template_features(
     query_sequence: str,
     templates: Sequence[Mapping[str, Any]],
@@ -138,29 +182,9 @@ def load_explicit_template_features(
     """Extract features from explicit zero-based mappings, without date filtering."""
     features = []
     for entry in templates:
-        if "chainId" in entry:
-            raise ValueError(
-                "An explicit template does not support chainId; provide a single-chain "
-                "mmCIF file"
-            )
-        path = Path(base_dir) / entry["mmcifPath"]
-        logical_path = path.with_suffix("") if path.suffix == ".zst" else path
-        parsed = TemplateParser.parse(
-            file_id=logical_path.stem,
-            mmcif_string=read_text(path),
+        mmcif, chain_id, template_id = validate_explicit_template(
+            query_sequence, entry, base_dir=base_dir
         )
-        mmcif = parsed.mmcif_object
-        if mmcif is None or not mmcif.chain_to_seqres:
-            raise ValueError(
-                f"Could not parse protein template {path}: {parsed.errors}"
-            )
-        if len(mmcif.chain_to_seqres) != 1:
-            raise ValueError(f"Template {path} must be a single protein chain")
-        chain_id = next(iter(mmcif.chain_to_seqres))
-        entry_ids = mmcif.raw_string.get("_entry.id", [])
-        template_id = entry_ids[0] if entry_ids else logical_path.stem
-        if template_id in (".", "?"):
-            template_id = logical_path.stem
         mapping = dict(
             zip(entry["queryIndices"], entry["templateIndices"], strict=True)
         )
@@ -191,6 +215,7 @@ def finalize_template_hits(
     max_template_date: str | datetime | None,
 ) -> list[dict[str, Any]]:
     """Freeze selected, realigned search hits as portable explicit templates."""
+    reject_cached_template_featurizer(template_featurizer)
     path = Path(templates_path)
     content = read_text(path)
     logical_path = path.with_suffix("") if path.suffix == ".zst" else path

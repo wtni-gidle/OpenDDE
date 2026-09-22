@@ -5,8 +5,74 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 _MAX_NUMPY_SEED = 2**32 - 1
+
+
+def validate_resource_choice(data, field, *, required=False):
+    inline, path = data.get(field), data.get(field + "Path")
+    if inline is not None and path is not None:
+        raise ValueError(f"Use only {field} or {field}Path, not both.")
+    if inline is not None and not isinstance(inline, str):
+        raise ValueError(f"{field} must be text.")
+    if path is not None and (not isinstance(path, str) or not path):
+        raise ValueError(f"{field}Path must be a non-empty path.")
+    if required and inline is None and path is None:
+        raise ValueError(f"Provide {field} or {field}Path.")
+
+
+def has_explicit_msa(chain, channels=("pairedMsa", "unpairedMsa")):
+    """Empty inline text is explicit; invalid supplied paths never trigger search."""
+    supplied = False
+    for channel in channels:
+        validate_resource_choice(chain, channel)
+        supplied |= (
+            chain.get(channel) is not None or chain.get(channel + "Path") is not None
+        )
+        path = chain.get(channel + "Path")
+        if path is not None and not Path(path).is_file():
+            raise FileNotFoundError(f"{channel}Path does not exist: {path}")
+    return supplied
+
+
+def validate_template_entry(entry, query_length, template_length=None):
+    if not isinstance(entry, dict):
+        raise ValueError("Each templates entry must be an object.")
+    if "chainId" in entry:
+        raise ValueError(
+            "An explicit template does not support chainId; use single-chain mmCIF."
+        )
+    validate_resource_choice(entry, "mmcif", required=True)
+    for key, limit in (
+        ("queryIndices", query_length),
+        ("templateIndices", template_length),
+    ):
+        values = entry.get(key)
+        if not isinstance(values, list) or any(
+            type(i) is not int or i < 0 for i in values
+        ):
+            raise ValueError(f"{key} indices must be nonnegative integers.")
+        if len(set(values)) != len(values):
+            raise ValueError(f"{key} indices must be unique.")
+        if limit is not None and any(i >= limit for i in values):
+            raise ValueError(f"{key} index exceeds sequence length {limit}.")
+    if len(entry["queryIndices"]) != len(entry["templateIndices"]):
+        raise ValueError("queryIndices and templateIndices must have equal lengths.")
+
+
+def validate_chain_conditions(chain, *, protein=True):
+    if "templatesPath" in chain:
+        raise ValueError(
+            "templatesPath is no longer supported; use templates in the main JSON."
+        )
+    for channel in ("pairedMsa", "unpairedMsa") if protein else ("unpairedMsa",):
+        validate_resource_choice(chain, channel)
+    if protein and chain.get("templates") is not None:
+        if not isinstance(chain["templates"], list):
+            raise ValueError("templates must be a list.")
+        for entry in chain["templates"]:
+            validate_template_entry(entry, len(chain.get("sequence", "")))
 
 
 def validate_inference_seed(value: Any, *, location: str = "seed") -> int:
@@ -67,6 +133,12 @@ def validate_inference_jobs(value: Any) -> list[dict[str, Any]]:
                 "duplicate names would overwrite outputs."
             )
         seen_names.add(name)
+        for sequence in job.get("sequences", []):
+            for kind in ("proteinChain", "rnaSequence"):
+                if kind in sequence:
+                    validate_chain_conditions(
+                        sequence[kind], protein=kind == "proteinChain"
+                    )
 
         model_seeds = job.get("modelSeeds")
         if model_seeds is not None:

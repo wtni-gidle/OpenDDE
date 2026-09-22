@@ -39,6 +39,7 @@ from opendde.data.tools import kalign
 from opendde.data.utils import pdb_to_cif
 from opendde.distributed.foldcp.config import FoldCPConfig
 from opendde.utils.logger import get_logger
+from opendde.utils.scratch import runtime_directory, with_runtime_directory
 from opendde.utils.logging_config import init_logging
 from runner.cli import CONTEXT_SETTINGS, opendde_cli
 from runner.fold_input import prepare_input_jobs
@@ -579,6 +580,7 @@ def get_default_runner(
     return runner
 
 
+@with_runtime_directory
 def run_prediction_workflow(
     json_file: str,
     out_dir: str = "./output",
@@ -621,6 +623,7 @@ def run_prediction_workflow(
     compress_full_confidence: bool = True,
     run_data_pipeline: bool = True,
     run_inference: bool = True,
+    write_input_json: bool | None = None,
     max_template_date: str = "2021-09-30",
     skip: bool = False,
     compress_fold_input: bool = True,
@@ -677,10 +680,11 @@ def run_prediction_workflow(
     """
     if not run_data_pipeline and not run_inference:
         raise ValueError("Enable at least one of run_data_pipeline or run_inference.")
-    if run_data_pipeline and foldcp_mode == "distributed":
+    publish = run_data_pipeline if write_input_json is None else write_input_json
+    if (run_data_pipeline or publish) and foldcp_mode == "distributed":
         raise ValueError(
             "Prepare inputs in a single process with -D true -P false, "
-            "then use torchrun with -D false -P true."
+            "then use torchrun with -D false -P true -J false."
         )
     if n_sample < 1:
         raise ValueError(f"--sample must be at least 1, got {n_sample}.")
@@ -694,15 +698,15 @@ def run_prediction_workflow(
     )
     _validate_input_collection(preflight_jsons)
     infer_jsons = []
-    if run_data_pipeline:
+    if run_data_pipeline or publish:
         for path in preflight_jsons:
             infer_jsons.extend(
                 prepare_input_jobs(
                     path,
-                    out_dir,
-                    use_msa=use_msa,
-                    use_template=use_template,
-                    use_rna_msa=use_rna_msa,
+                    out_dir if publish else runtime_directory(),
+                    use_msa=use_msa and run_data_pipeline,
+                    use_template=use_template and run_data_pipeline,
+                    use_rna_msa=use_rna_msa and run_data_pipeline,
                     msa_server_mode=msa_server_mode,
                     hmmsearch_binary_path=hmmsearch_binary_path,
                     hmmbuild_binary_path=hmmbuild_binary_path,
@@ -722,8 +726,9 @@ def run_prediction_workflow(
     else:
         infer_jsons = preflight_jsons
     _validate_input_collection(infer_jsons)
+    result_paths = infer_jsons if publish else preflight_jsons
     if not run_inference or not infer_jsons:
-        return infer_jsons
+        return result_paths
     if (
         skip
         and foldcp_mode == "single"
@@ -737,7 +742,7 @@ def run_prediction_workflow(
         )
     ):
         logger.info("Skipping inference: all requested job/seed outputs are complete.")
-        return infer_jsons
+        return result_paths
     runner = get_default_runner(
         seeds=seeds,
         dump_dir=out_dir,
@@ -795,7 +800,7 @@ def run_prediction_workflow(
             raise RuntimeError(f"One or more inference inputs failed: {infer_errors}")
     finally:
         runner.close()
-    return infer_jsons
+    return result_paths
 
 
 # Keep the established Python entry point and positional parameters.
@@ -816,6 +821,13 @@ inference_jsons = run_prediction_workflow
 )
 @click.option(
     "-P", "--run_inference", type=bool, default=True, help="Run structure prediction."
+)
+@click.option(
+    "-J",
+    "--write_input_json",
+    type=bool,
+    default=None,
+    help="Publish a portable input JSON and resources; unset follows -D.",
 )
 @click.option(
     "--max_template_date",
@@ -1103,6 +1115,7 @@ def predict(
     foldcp_metrics_jsonl: str = "",
     run_data_pipeline: bool = True,
     run_inference: bool = True,
+    write_input_json: bool | None = None,
     max_template_date: str = "2021-09-30",
 ) -> None:
     """
@@ -1249,6 +1262,7 @@ def predict(
         foldcp_metrics_jsonl=foldcp_metrics_jsonl,
         run_data_pipeline=run_data_pipeline,
         run_inference=run_inference,
+        write_input_json=write_input_json,
         max_template_date=max_template_date,
     )
 
@@ -1466,7 +1480,7 @@ def msatemplate(
     hmmbuild_binary_path: Optional[str],
     seqres_database_path: Optional[str],
     msa_server_mode: Optional[str],
-) -> str:
+) -> list[str]:
     """
     Perform MSA search followed by template search.
 
@@ -1479,7 +1493,7 @@ def msatemplate(
         msa_server_mode (Optional[str]): Deprecated compatibility option; ignored.
 
     Returns:
-        str: Updated JSON file path with template information.
+        list[str]: Portable JSON paths with explicit templates.
     """
     logger.info(f"Run msa_template with input={input}, out_dir={out_dir}")
 
@@ -1491,8 +1505,8 @@ def msatemplate(
     if not os.path.exists(input):
         raise RuntimeError(f"input file {input} does not exist")
 
-    return preprocess_input(
-        input_json=input,
+    return prepare_input_jobs(
+        input_path=input,
         out_dir=out_dir,
         use_msa=True,
         use_template=True,

@@ -15,7 +15,6 @@ from opendde.data.constants import (
 )
 from opendde.data.msa.msa_utils import map_to_standard
 from opendde.data.template.template_finalizer import load_explicit_template_features
-from opendde.data.template.template_parser import HHRParser, HmmsearchA3MParser
 from opendde.data.template.template_utils import (
     TEMPLATE_FEATURES,
     DistogramFeaturesConfig,
@@ -25,7 +24,6 @@ from opendde.data.template.template_utils import (
 )
 from opendde.data.utils import pad_to
 from opendde.utils.logger import get_logger
-from opendde.utils.text_io import read_text
 
 logger = get_logger(__name__)
 
@@ -273,17 +271,20 @@ class InferenceTemplateFeaturizer:
         curr_asym_id = 0
 
         for eid, info in enumerate(bioassembly):
-            seq, count, ctype, t_path = "", 0, LIGAND_CHAIN_TYPES, ""
+            seq, count, ctype = "", 0, LIGAND_CHAIN_TYPES
             explicit_templates = None
 
             if "proteinChain" in info:
                 c = info["proteinChain"]
+                if "templatesPath" in c:
+                    raise ValueError(
+                        "templatesPath is no longer supported; use templates."
+                    )
                 explicit_templates = c.get("templates")
-                seq, count, ctype, t_path = (
+                seq, count, ctype = (
                     c["sequence"],
                     c["count"],
                     PROTEIN_CHAIN,
-                    c.get("templatesPath", ""),
                 )
             elif "rnaSequence" in info:
                 c = info["rnaSequence"]
@@ -310,30 +311,6 @@ class InferenceTemplateFeaturizer:
                     base_dir=base_dir,
                     template_processor=processor,
                 )
-            elif t_path and use_template and online_template_featurizer:
-                assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
-                content = read_text(t_path)
-                logical_path = (
-                    t_path[: -len(".zst")] if t_path.endswith(".zst") else t_path
-                )
-
-                if logical_path.endswith(".hhr"):
-                    hits = HHRParser.parse(hhr_string=content)
-                elif logical_path.endswith(".a3m"):
-                    hits = HmmsearchA3MParser.parse(
-                        query_seq=seq, a3m_str=content, skip_first=False
-                    )
-                else:
-                    raise ValueError(f"Unsupported template format: {t_path}")
-
-                result, _ = online_template_featurizer.get_templates(
-                    sequence_uid=seq,
-                    query_sequence=seq,
-                    hits=hits,
-                    max_template_date=None,
-                )
-                templates = result.features
-                logger.info(f"Found {len(templates)} templates for sequence {seq}")
 
             for i in range(count):
                 aid = curr_asym_id + i

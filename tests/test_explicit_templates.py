@@ -145,8 +145,48 @@ def test_explicit_template_reads_zstd_by_magic(tmp_path, monkeypatch):
     assert features[0]["template_sequence"] == b"AA"
 
 
+@pytest.mark.parametrize(
+    "query,template",
+    [
+        ([-1, 1], [0, 1]),
+        ([0, 0], [0, 1]),
+        ([0, 1], [0, 0]),
+        ([True, 1], [0, 1]),
+        ([0, 7], [0, 1]),
+        ([0, 1], [0, 7]),
+        ([0, 1], [-1, 1]),
+    ],
+)
+def test_explicit_mapping_rejects_invalid_indices(
+    tmp_path, monkeypatch, query, template
+):
+    from opendde.data.template.template_finalizer import load_explicit_template_features
+
+    (tmp_path / "tiny.cif").write_text(_cif())
+    online = _online(tmp_path, monkeypatch)
+    # The real input gate must reject malformed mappings before scientific extraction.
+    monkeypatch.setattr(
+        online._hit_processor,
+        "_extract_template_features",
+        lambda **kw: ({"template_sequence": b"AA"}, None),
+    )
+    with pytest.raises(ValueError, match="[Ii]ndices|index|indices"):
+        load_explicit_template_features(
+            "AAAAAAA",
+            [
+                {
+                    "mmcifPath": "tiny.cif",
+                    "queryIndices": query,
+                    "templateIndices": template,
+                }
+            ],
+            base_dir=tmp_path,
+            template_processor=online._hit_processor,
+        )
+
+
 @pytest.mark.parametrize("empty", [False, True])
-def test_explicit_templates_override_legacy_hits_and_dates(
+def test_explicit_templates_do_not_apply_automatic_date_cutoff(
     tmp_path, monkeypatch, empty
 ):
     path = tmp_path / "tiny.cif"
@@ -165,7 +205,6 @@ def test_explicit_templates_override_legacy_hits_and_dates(
                     "sequence": "AAAAAAA",
                     "count": 1,
                     "templates": [] if empty else [entry],
-                    "templatesPath": str(legacy),
                 }
             }
         ],
@@ -422,7 +461,6 @@ def test_dataset_explicit_templates_need_no_database_or_online_featurizer(
                         "templateIndices": list(range(7)),
                     }
                 ],
-                "templatesPath": "ignored_legacy.a3m",
             }
         }
     ]
@@ -441,7 +479,7 @@ def test_dataset_explicit_templates_need_no_database_or_online_featurizer(
     assert int(result["template_atom_mask"].sum()) == (0 if empty else 7)
 
 
-def test_dataset_mixed_templates_still_requires_and_constructs_legacy_featurizer(
+def test_dataset_rejects_legacy_templates_before_database_access(
     tmp_path,
 ):
     from opendde.data.inference.infer_dataloader import InferenceDataset
@@ -456,8 +494,34 @@ def test_dataset_mixed_templates_still_requires_and_constructs_legacy_featurizer
         }
     ]
     configs = _dataset_config(tmp_path)
-    with pytest.raises(AssertionError, match="mmcif directory"):
+    with pytest.raises(ValueError, match="templatesPath"):
         InferenceDataset(configs, inputs=inputs)
-    (tmp_path / "missing_database").mkdir()
-    dataset = InferenceDataset(configs, inputs=inputs)
-    assert isinstance(dataset.online_template_featurizer, TemplateHitFeaturizer)
+    assert not (tmp_path / "missing_database").exists()
+
+
+@pytest.mark.parametrize("path_field", [{}, {"mmcifPath": None}])
+def test_inline_mmcif_matches_file_features(tmp_path, monkeypatch, path_field):
+    from opendde.data.template.template_finalizer import load_explicit_template_features
+
+    text = _cif(missing_residues={"A": {4}})
+    (tmp_path / "tiny.cif").write_text(text)
+    processor = _online(tmp_path, monkeypatch)._hit_processor
+    indices = {"queryIndices": list(range(7)), "templateIndices": list(range(7))}
+    inline = load_explicit_template_features(
+        "AAAAAAA",
+        [{"mmcif": text, **indices, **path_field}],
+        base_dir=tmp_path,
+        template_processor=processor,
+    )[0]
+    file = load_explicit_template_features(
+        "AAAAAAA",
+        [{"mmcifPath": "tiny.cif", **indices}],
+        base_dir=tmp_path,
+        template_processor=processor,
+    )[0]
+    for field in (
+        "template_aatype",
+        "template_all_atom_positions",
+        "template_all_atom_masks",
+    ):
+        np.testing.assert_array_equal(inline[field], file[field])

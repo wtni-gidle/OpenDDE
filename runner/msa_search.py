@@ -6,6 +6,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 from opendde.data.msa.msa_service_client import search_and_build_msa
 from opendde.utils.logger import get_logger
+from opendde.data.inference.input_validation import has_explicit_msa
 
 logger = get_logger(__name__)
 
@@ -26,24 +27,8 @@ def need_msa_search(json_data: dict) -> bool:
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence:
             protein_chain = sequence["proteinChain"]
-            paired_msa_path = protein_chain.get("pairedMsaPath")
-            unpaired_msa_path = protein_chain.get("unpairedMsaPath")
-
-            if paired_msa_path is None and unpaired_msa_path is None:
+            if not has_explicit_msa(protein_chain):
                 need_msa = True
-            else:
-                if paired_msa_path is not None and not os.path.exists(paired_msa_path):
-                    logger.warning(
-                        f"pairedMsaPath {paired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
-                if unpaired_msa_path is not None and not os.path.exists(
-                    unpaired_msa_path
-                ):
-                    logger.warning(
-                        f"unpairedMsaPath {unpaired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
     return need_msa
 
 
@@ -91,6 +76,9 @@ def convert_one_json_dict(obj: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                 protein_chain = sequence["proteinChain"]
                 if "msa" in protein_chain:
                     msa_info = protein_chain.pop("msa")  # Remove old msa field
+                    format_converted = True
+                    if has_explicit_msa(protein_chain):
+                        continue  # Same precedence as the native inference reader.
                     logger.info(
                         f"Detecting old MSA format: {msa_info}, converting to new format."
                     )
@@ -102,9 +90,17 @@ def convert_one_json_dict(obj: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                         non_pairing_path = f"{precomputed_msa_dir}/non_pairing.a3m"
 
                         # Add new fields if the files exist
-                        if os.path.exists(pairing_path):
+                        if (
+                            os.path.exists(pairing_path)
+                            and protein_chain.get("pairedMsa") is None
+                            and protein_chain.get("pairedMsaPath") is None
+                        ):
                             protein_chain["pairedMsaPath"] = pairing_path
-                        if os.path.exists(non_pairing_path):
+                        if (
+                            os.path.exists(non_pairing_path)
+                            and protein_chain.get("unpairedMsa") is None
+                            and protein_chain.get("unpairedMsaPath") is None
+                        ):
                             protein_chain["unpairedMsaPath"] = non_pairing_path
 
     return obj, format_converted
@@ -152,6 +148,11 @@ def update_seq_msa(
         dict: The updated task data.
     """
     protein_seqs = []
+    supplied = {
+        id(s["proteinChain"]): has_explicit_msa(s["proteinChain"])
+        for s in infer_seq["sequences"]
+        if "proteinChain" in s
+    }
     for sequence in infer_seq["sequences"]:
         if "proteinChain" in sequence.keys():
             protein_seqs.append(sequence["proteinChain"]["sequence"])
@@ -163,6 +164,8 @@ def update_seq_msa(
         protein_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
         for sequence in infer_seq["sequences"]:
             if "proteinChain" in sequence.keys():
+                if supplied[id(sequence["proteinChain"])]:
+                    continue
                 precomputed_msa_dir = protein_msa_res[
                     sequence["proteinChain"]["sequence"]
                 ]

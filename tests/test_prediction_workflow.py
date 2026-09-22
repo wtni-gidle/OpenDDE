@@ -172,7 +172,9 @@ def test_inference_directory_can_share_output_and_ignores_prediction_json(
     [[], [{"mmcifPath": "manual.cif", "queryIndices": [0], "templateIndices": [0]}]],
 )
 def test_explicit_templates_skip_automatic_path(tmp_path, monkeypatch, templates):
-    (tmp_path / "manual.cif").write_text("data_manual\n")
+    from tests.test_explicit_templates import _cif
+
+    (tmp_path / "manual.cif").write_text(_cif())
     source = write_input(
         tmp_path,
         [
@@ -207,7 +209,7 @@ def test_explicit_templates_skip_automatic_path(tmp_path, monkeypatch, templates
         ]
         assert (
             read_text(Path(paths[0]).parent / prepared_templates[0]["mmcifPath"])
-            == "data_manual\n"
+            == _cif()
         )
     else:
         assert prepared_templates == []
@@ -253,7 +255,7 @@ def test_template_cutoff_reaches_finalizer_and_search_uses_scratch(
         use_msa=False,
         use_template=True,
         max_template_date="2040-01-02",
-        template_featurizer=object(),
+        template_featurizer=SimpleNamespace(_template_cache_dir=None),
     )
     assert seen == ["2040-01-02"]
     chain = json.loads(Path(paths[0]).read_text())[0]["sequences"][0]["proteinChain"]

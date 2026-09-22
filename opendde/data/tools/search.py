@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import subprocess
-import tempfile
+from opendde.utils.scratch import temporary_directory
 import time
 from typing import Any, Final, List, Mapping, Optional, Protocol, Union, cast
 
@@ -98,7 +98,7 @@ class Hmmalign(BinaryWrapper):
         Returns:
             Aligned sequences in A3M format.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory() as tmp:
             prof_p, in_p, out_p = f"{tmp}/p", f"{tmp}/i", f"{tmp}/o"
             pathlib.Path(prof_p).write_text(profile)
             pathlib.Path(in_p).write_text(a3m)
@@ -156,7 +156,7 @@ class Hmmbuild(BinaryWrapper):
         Returns:
             The HMM profile string.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory() as tmp:
             in_p, out_p = f"{tmp}/i", f"{tmp}/o"
             pathlib.Path(in_p).write_text(msa)
             cmd = [self.path, "--informat", informat] + self.opts
@@ -242,7 +242,7 @@ class Hmmsearch(BinaryWrapper):
         Returns:
             Search result in A3M format.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory() as tmp:
             hmm_p, sto_p = f"{tmp}/q.hmm", f"{tmp}/o.sto"
             pathlib.Path(hmm_p).write_text(hmm)
             cmd = (
@@ -329,7 +329,7 @@ class Nhmmer(BinaryWrapper, MsaTool):
         Returns:
             MsaToolResult object.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory() as tmp:
             fa_p, sto_p = f"{tmp}/q.fa", f"{tmp}/o.sto"
             pathlib.Path(fa_p).write_text(f">query\n{seq}\n")
             cmd = [

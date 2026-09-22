@@ -86,7 +86,7 @@ protein chain ID `A` contains the supplied or generated files below:
 This shows `--compress_fold_input false`. The default prepared suffixes are
 `.a3m.zst` and `.cif.zst`; content magic, not the suffix, selects decompression.
 
-The data stage writes only one final JSON per job. Search scratch files live in
+When publication is enabled, the data stage writes one final JSON per job. Search scratch files live in
 a temporary directory that is removed before return. Prepared paths are
 relative to `_data.json`; move the whole job directory to move its MSA/template
 resources. `FILE_` ligand files remain external absolute references; the caller
@@ -94,12 +94,13 @@ must keep them accessible or update their paths after moving to another machine.
 An entity with `id: ["A", "B"]` shares one MSA pair named using `A`.
 
 Inference-only accepts a prepared JSON directly, or a directory searched
-recursively for `*_data.json` bundles. It does not search or rewrite JSON.
+recursively for `*_data.json` bundles. It does not search. By default it does not
+rewrite JSON; explicit `-J true` publishes the current supplied conditions.
 When every protein chain uses explicit templates or `templates: []`, template
 use requires no HMMER, Kalign, template database, or PDBe access during inference,
-including with `data.template.fetch_remote=false`. A chain using a non-empty
-legacy `templatesPath` still initializes the hit-processing machinery and needs
-the configured database or remote fetching. Model checkpoints and common
+including with `data.template.fetch_remote=false`. Legacy `templatesPath` is
+rejected at the public boundary, even when `templates` is also present.
+Model checkpoints and common
 runtime assets are still required.
 
 ## Protein MSA and pairing
@@ -162,12 +163,23 @@ opendde pred -i input.json -o ./output -D true -P false \
   --seqres_database_path /path/to/pdb_seqres_2022_09_28.fasta
 ```
 
-Automatic preparation selects and realigns hits, obtains mmCIFs from cache or
+Automatic preparation selects and realigns hits, obtains mmCIFs from local files or
 PDBe, and writes explicit templates into the bundle. It respects
 `--max_template_date` (default `2021-09-30`, also available on `prep`) and keeps
 up to four selected templates. Explicit templates bypass the date cutoff,
 matching AF3 semantics; model assembly still uses at most four templates.
 Enable `--use_template true` again during inference to use prepared templates.
+
+The EnsembleFold wrapper does not create or reuse parsed-template `.pkl` caches,
+including temporary parsing caches. Preparation reads current CIF files and
+inference rebuilds features from the current explicit templates. Custom template
+featurizers passed to preparation or hit finalization must have
+`template_cache_dir=None` or `''`; nonempty values raise a clear error.
+The native `prot_template_cache_dir` configuration remains available to native
+tools, but is not used by the prepared wrapper. This does not disable local CIF
+files, release-date/obsolete-PDB metadata, or native cache tools, and does not
+delete existing cache files. Search, filtering, alignment, and residue mappings
+otherwise retain their existing behavior.
 
 ## RNA MSA
 
@@ -192,21 +204,36 @@ Inference requires `--use_rna_msa true` and `--use_msa true`.
 
 ## Legacy low-level `msa` and `mt` commands
 
-These diagnostic helpers retain their earlier intermediate-file behavior:
+The MSA diagnostic helper and portable template preparation command are:
 
 ```bash
 opendde msa -i input.json -o ./output   # protein MSA only
-opendde mt -i input.json -o ./output    # protein MSA + template hits
+opendde mt -i input.json -o ./output    # portable protein MSA + explicit templates
 ```
 
 When JSON changes are needed, `msa` writes `*-update-msa.json` next to the
-source JSON. `mt` writes its generated JSONs under
-`<out>/.opendde_preprocessed/<input-hash>/`, using `*-update-msa.json` and,
-when needed, `*-final-updated.json`. These are separate from `pred`/`prep`
-bundles. `mt` records template hits in `templatesPath`; wrapper data
-preparation with `--use_template true` finalizes it into explicit templates.
-Direct inference on legacy `templatesPath` is still supported, but hit
-featurization may need Kalign and cached or remote template mmCIFs.
+source JSON. `mt` now uses the same portable writer as `pred`/`prep`, returns one
+`<out>/<name>/<name>_data.json` per job, and finalizes template hits before writing.
+It no longer publishes legacy hit-file inputs. Low-level internal hit-processing
+helpers remain available to the data pipeline, not as public inference inputs.
+
+### Independent publication and temporary files
+
+`pred -J/--write_input_json` controls public JSON/resource publication independently
+of `-D` and `-P`. When omitted it follows `-D`, preserving the existing default.
+`-D true -J false` performs preparation in private scratch; resources stay alive
+through inference and are then removed, including on failure. Returned paths in
+this mode refer to the original inputs, not the deleted temporary snapshots.
+`-D false -J true` republishes supplied conditions without searching. Both stages
+disabled is an error. Distributed inference requires `-D false -J false`.
+
+Publication always refreshes the snapshot, materializes inline or external
+MSA/mmCIF as relative `msas/...` paths, stages resource reads before touching the
+old bundle, and publishes JSON last. Caught publication failures restore replaced
+files. This is not a crash-atomic multi-file transaction; concurrent writers to
+the same bundle are unsupported. Old unreferenced files are not automatically
+deleted. Private wrapper scratch prefers a writable `SLURM_TMPDIR`, then `TMPDIR`
+or the system temporary directory; weights and CCD are outside its cleanup.
 
 ## Search databases
 

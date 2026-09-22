@@ -44,7 +44,6 @@ def _write_fixture_input(
                                 "id": ["A", "B"],
                                 "pairedMsaPath": "assets/paired.a3m",
                                 "unpairedMsaPath": "assets/unpaired.a3m",
-                                "templatesPath": "assets/template_hits.hhr",
                                 "templates": [
                                     {
                                         "mmcifPath": "assets/template.cif",
@@ -84,7 +83,6 @@ def test_load_input_jobs_resolves_resource_paths_from_json_directory(
     assert loaded_path == source_json
     assert protein["pairedMsaPath"] == resource_paths["paired"]
     assert protein["unpairedMsaPath"] == resource_paths["unpaired"]
-    assert protein["templatesPath"] == resource_paths["template_hits"]
     assert protein["templates"][0]["mmcifPath"] == resource_paths["template"]
     assert rna["unpairedMsaPath"] == resource_paths["rna"]
 

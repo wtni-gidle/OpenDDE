@@ -220,6 +220,13 @@ to `true`. Data-only never loads the model; both `false` is an error. `pred`
 defaults to protein MSA enabled, templates and RNA MSA disabled. `prep` enables
 all three where applicable and prints each prepared JSON path.
 
+`-J/--write_input_json` independently controls public input JSON/resource writes.
+When omitted it follows `-D`. With `-D true -J false`, preparation remains private
+until inference finishes and is then cleaned up. With `-D false -J true`, supplied
+conditions are saved without searching. Public templates must use the main JSON's
+`templates` list; legacy `templatesPath` is rejected. See the
+[MSA/template guide](msa_template_pipeline.md#independent-publication-and-temporary-files).
+
 For a protein entity with ID `A`, preparation writes:
 
 ```text
@@ -396,11 +403,15 @@ Each NPZ key is an existing OpenDDE full-confidence field stored as a primitive
 NumPy array and can be loaded with `numpy.load(path, allow_pickle=False)`.
 
 For lightweight resume, pass `--skip true`. OpenDDE checks each requested
-job/seed and original sample index: the model CIF must be non-empty, summary
-confidence must be a non-empty JSON object, and `full_data` must also be a
-readable non-empty JSON object or NPZ archive in the selected format when atom
-confidence is enabled. Complete seeds are
-skipped and incomplete or corrupt seeds are recomputed in request order. The
+job/seed and original sample index: the model CIF and summary confidence JSON
+must exist as non-empty regular files, as must `full_data` in the selected JSON
+or NPZ format when atom confidence is enabled. Resume checks file metadata only;
+it does not open or validate output contents or compare inputs, model settings,
+or other conditions. Existing outputs can therefore be reused after conditions
+change. All expected sample indices must be present. If any required file is
+missing or empty, the entire affected seed is recomputed with all its samples;
+completed seeds are preserved. Existing job-name and path-containment checks
+still apply. The
 default `--skip false` always recomputes and does not inspect existing prediction
 outputs; data-only runs never inspect them either.
 
@@ -417,6 +428,7 @@ OpenDDE writes every job/seed synchronously; there is no delayed-write mode.
 | --- | --- |
 | `-D`, `--run_data_pipeline` | Prepare portable bundles; boolean, default `true`. Use a single process for this stage. |
 | `-P`, `--run_inference` | Predict from prepared inputs; boolean, default `true`. |
+| `-J`, `--write_input_json` | Publish portable input JSON/resources; unset follows `-D`. False keeps preparation private. |
 | `-n`, `--model_name` | Model name. Currently `opendde_v1`. |
 | `--load_checkpoint_path` | Explicit checkpoint path. |
 | `--seeds` | Comma-separated seeds, e.g. `101,102`. Overrides the job's `modelSeeds`; if unset, `modelSeeds` are used, or a random seed when both are absent. |

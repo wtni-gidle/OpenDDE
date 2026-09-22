@@ -7,7 +7,7 @@ import time
 import traceback
 import warnings
 from collections.abc import Iterable, Iterator, Sized
-from typing import Any, cast
+from typing import Any
 
 import torch
 from biotite.structure import AtomArray
@@ -18,7 +18,6 @@ from opendde.data.inference.input_validation import validate_inference_jobs
 from opendde.data.inference.json_to_feature import SampleDictToFeatures
 from opendde.data.msa.msa_featurizer import InferenceMSAFeaturizer
 from opendde.data.template.template_featurizer import InferenceTemplateFeaturizer
-from opendde.data.template.template_utils import TemplateHitFeaturizer
 from opendde.data.utils import data_type_transform, make_dummy_feature
 from opendde.utils.distributed import DIST_WRAPPER
 from opendde.utils.torch_utils import collate_fn_identity, dict_to_tensor
@@ -171,44 +170,9 @@ class InferenceDataset(Dataset):
         if inputs is None:
             with open(self.input_json_path, "r") as f:
                 inputs = validate_inference_jobs(json.load(f))
-        self.inputs = cast(list[dict[str, Any]], inputs)
-        needs_legacy_templates = any(
-            chain.get("templates") is None and bool(chain.get("templatesPath"))
-            for job in self.inputs
-            for sequence in job.get("sequences", [])
-            if (chain := sequence.get("proteinChain")) is not None
-        )
-        if self.use_template and needs_legacy_templates:
-            template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
-            fetch_remote = configs.data.template.get("fetch_remote", True)
-            if not fetch_remote:
-                assert template_mmcif_dir is not None and os.path.exists(
-                    template_mmcif_dir
-                ), (
-                    "Inference with template depends on the mmcif directory.\n"
-                    "The mmcif directory containing cif files should be placed under $OPENDDE_ROOT_DIR/search_database/mmcif.\n"
-                    "You can download it from PDB https://www.wwpdb.org/ftp/pdb-ftp-sites or\n"
-                    "refer to scripts/download_opendde_data.sh to download inference dependency files, "
-                    "set use_template=false for inference, or set data.template.fetch_remote=true "
-                    "to download mmCIF files on demand from PDBe."
-                )
-            else:
-                if template_mmcif_dir:
-                    os.makedirs(template_mmcif_dir, exist_ok=True)
-            self.online_template_featurizer = TemplateHitFeaturizer(
-                mmcif_dir=configs.data.template.prot_template_mmcif_dir,
-                template_cache_dir=configs.data.template.prot_template_cache_dir,
-                max_hits=4,
-                kalign_binary_path=configs.data.template.kalign_binary_path,
-                max_template_date="2021-09-30",
-                release_dates_path=configs.data.template.release_dates_path,
-                obsolete_pdbs_path=configs.data.template.obsolete_pdbs_path,
-                _shuffle_top_k_prefiltered=None,
-                _max_template_candidates_num=20,
-                fetch_remote=fetch_remote,
-            )
-        else:
-            self.online_template_featurizer = None
+        self.inputs = validate_inference_jobs(inputs)
+        # Search-hit finalization belongs to data, never to public inference.
+        self.online_template_featurizer = None
 
     def process_one(
         self,

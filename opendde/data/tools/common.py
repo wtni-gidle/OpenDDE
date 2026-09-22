@@ -4,12 +4,13 @@ import contextlib
 import shutil
 import tempfile
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from opendde.utils.scratch import scratch_base
 
 
 @contextlib.contextmanager
 def tmpdir_manager(base_dir: Optional[str] = None):
     """Context manager that deletes a temporary directory on exit."""
-    tmpdir = tempfile.mkdtemp(dir=base_dir)
+    tmpdir = tempfile.mkdtemp(dir=base_dir if base_dir is not None else scratch_base())
     try:
         yield tmpdir
     finally:

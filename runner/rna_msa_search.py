@@ -379,9 +379,9 @@ def update_rna_msa_info(
                 if not rna_sequence:
                     continue
 
-                if "unpairedMsaPath" in rna_chain and os.path.exists(
-                    rna_chain["unpairedMsaPath"]
-                ):
+                from opendde.data.inference.input_validation import has_explicit_msa
+
+                if has_explicit_msa(rna_chain, ("unpairedMsa",)):
                     continue
 
                 logger.info(
