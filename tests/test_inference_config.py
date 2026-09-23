@@ -55,11 +55,11 @@ def test_legacy_config_dict_without_device_uses_schema_default():
     assert OpenDDEConfig.model_validate(legacy_config).device == "auto"
 
 
-def test_legacy_config_dict_without_compression_uses_npz_default():
+def test_legacy_config_dict_without_compression_uses_json_default():
     legacy_config = build_inference_config(fill_required_with_null=True).model_dump()
     legacy_config.pop("compress_full_confidence")
 
-    assert OpenDDEConfig.model_validate(legacy_config).compress_full_confidence is True
+    assert OpenDDEConfig.model_validate(legacy_config).compress_full_confidence is False
 
 
 def test_build_inference_config_keeps_cli_overrides_highest_priority():

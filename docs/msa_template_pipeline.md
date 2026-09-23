@@ -83,7 +83,7 @@ protein chain ID `A` contains the supplied or generated files below:
     └── <name>__A_template_0.cif
 ```
 
-This shows `--compress_fold_input false`. The default prepared suffixes are
+This shows the default `--compress_fold_input false`. With true the prepared suffixes are
 `.a3m.zst` and `.cif.zst`; content magic, not the suffix, selects decompression.
 
 When publication is enabled, the data stage writes one final JSON per job. Search scratch files live in
@@ -94,8 +94,8 @@ must keep them accessible or update their paths after moving to another machine.
 An entity with `id: ["A", "B"]` shares one MSA pair named using `A`.
 
 Inference-only accepts a prepared JSON directly, or a directory searched
-recursively for `*_data.json` bundles. It does not search. By default it does not
-rewrite JSON; explicit `-J true` publishes the current supplied conditions.
+recursively for `*_data.json` bundles. It does not search. By default it refreshes
+the current supplied conditions; explicit `-J false` disables publication.
 When every protein chain uses explicit templates or `templates: []`, template
 use requires no HMMER, Kalign, template database, or PDBe access during inference,
 including with `data.template.fetch_remote=false`. Legacy `templatesPath` is
@@ -220,7 +220,7 @@ helpers remain available to the data pipeline, not as public inference inputs.
 ### Independent publication and temporary files
 
 `pred -J/--write_input_json` controls public JSON/resource publication independently
-of `-D` and `-P`. When omitted it follows `-D`, preserving the existing default.
+of `-D` and `-P`. When omitted it defaults to true, including inference-only runs.
 `-D true -J false` performs preparation in private scratch; resources stay alive
 through inference and are then removed, including on failure. Returned paths in
 this mode refer to the original inputs, not the deleted temporary snapshots.

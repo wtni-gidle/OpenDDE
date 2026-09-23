@@ -103,7 +103,7 @@ def test_prepared_inline_resources_and_failed_update_preserve_old_bundle(tmp_pat
     path = Path(write_prepared_job(original, tmp_path))
     chain = json.loads(path.read_text())[0]["sequences"][0]["proteinChain"]
     assert "unpairedMsa" not in chain
-    assert chain["unpairedMsaPath"] == "msas/target__A_unpairedmsa.a3m.zst"
+    assert chain["unpairedMsaPath"] == "msas/target__A_unpairedmsa.a3m"
     assert read_text(path.parent / chain["pairedMsaPath"]) == ""
     before = {p: p.read_bytes() for p in path.parent.rglob("*") if p.is_file()}
     changed = job(
@@ -379,7 +379,7 @@ def test_publication_allows_trusted_root_alias_but_not_resource_symlinks(tmp_pat
     path = Path(write_prepared_job(data, alias))
     assert path == alias / "target" / "target_data.json"
     assert path.is_file()
-    resource = root / "target" / "msas" / "target__A_unpairedmsa.a3m.zst"
+    resource = root / "target" / "msas" / "target__A_unpairedmsa.a3m"
     resource.unlink()
     protected = tmp_path / "protected"
     protected.write_bytes(b"unchanged")

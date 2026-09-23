@@ -15,7 +15,7 @@ inference_configs: dict[str, Any] = {
     "seeds": ListValue([], dtype=int),
     "dump_dir": "./output",
     "need_atom_confidence": True,
-    "compress_full_confidence": True,
+    "compress_full_confidence": False,
     "skip": False,
     "sorted_by_ranking_score": True,
     "device": "auto",

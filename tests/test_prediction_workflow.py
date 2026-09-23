@@ -47,7 +47,8 @@ def test_data_only_searches_and_writes_one_portable_json(tmp_path, monkeypatch):
     monkeypatch.setattr(batch_inference, "get_default_runner", forbid)
     monkeypatch.setattr(batch_inference, "preprocess_input", forbid)
     paths = batch_inference.run_prediction_workflow(
-        str(source), str(output), run_data_pipeline=True, run_inference=False
+        str(source), str(output), run_data_pipeline=True, run_inference=False,
+        compress_fold_input=True
     )
     assert paths == [str(output / "job" / "job_data.json")]
     assert list(output.rglob("*.json")) == [Path(paths[0])]
@@ -113,6 +114,7 @@ def test_inference_only_preserves_exact_prepared_path_and_closes_on_failure(
             run_data_pipeline=False,
             run_inference=True,
             foldcp_mode="distributed",
+            write_input_json=False,
         )
     assert closed == [True]
 
@@ -162,7 +164,7 @@ def test_inference_directory_can_share_output_and_ignores_prediction_json(
         lambda runner, configs: predictions.append(configs["input_json_path"]),
     )
     paths = batch_inference.run_prediction_workflow(
-        str(tmp_path), str(tmp_path), run_data_pipeline=False
+        str(tmp_path), str(tmp_path), run_data_pipeline=False, write_input_json=False
     )
     assert predictions == paths == [str(prepared)]
 
@@ -194,7 +196,8 @@ def test_explicit_templates_skip_automatic_path(tmp_path, monkeypatch, templates
     )
     monkeypatch.setattr(template_search, "update_template_info", forbid)
     paths = fold_input.prepare_input_jobs(
-        str(source), str(tmp_path / "out"), use_msa=False, use_template=True
+        str(source), str(tmp_path / "out"), use_msa=False, use_template=True,
+        compress_fold_input=True
     )
     prepared_templates = json.loads(Path(paths[0]).read_text())[0]["sequences"][0][
         "proteinChain"

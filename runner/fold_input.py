@@ -131,7 +131,7 @@ def _stage_prepared_job(
     job: dict[str, Any],
     out_dir: str | PathLike[str],
     *,
-    compress_fold_input: bool = True,
+    compress_fold_input: bool = False,
 ) -> str:
     """Copy MSA/template resources and write JSON; FILE_ ligands stay external."""
     prepared = deepcopy(validate_inference_jobs([job])[0])
@@ -209,7 +209,7 @@ def _atomic_copy(source: Path, destination: Path):
             temporary.unlink(missing_ok=True)
 
 
-def write_prepared_job(job, out_dir, *, compress_fold_input=True):
+def write_prepared_job(job, out_dir, *, compress_fold_input=False):
     """Stage all reads first; publish JSON last and roll back caught write errors.
 
     This is not a multi-file crash transaction or a concurrent-writer protocol.
@@ -297,7 +297,7 @@ def prepare_input_jobs(
     nhmmer_n_cpu: int | None = None,
     max_template_date: str = "2021-09-30",
     template_featurizer: Any = None,
-    compress_fold_input: bool = True,
+    compress_fold_input: bool = False,
 ) -> list[str]:
     """Run searches in memory and publish one portable bundle per input job."""
     from opendde.config.data import data_configs

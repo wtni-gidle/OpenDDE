@@ -227,6 +227,7 @@ def test_all_complete_skips_before_runner_initialization(tmp_path, monkeypatch):
         skip=True,
         n_step=99,
         n_cycle=9,
+        write_input_json=False,
     ) == [str(source)]
 
 
@@ -240,6 +241,7 @@ def test_all_complete_skips_before_runner_initialization(tmp_path, monkeypatch):
             "run_inference": True,
             "skip": True,
             "foldcp_mode": "distributed",
+            "write_input_json": False,
         },
     ],
 )
@@ -540,8 +542,8 @@ def test_cli_forwards_compression_defaults_and_overrides(tmp_path, monkeypatch):
         ["--input", str(tmp_path / "input.json"), "--run_data_pipeline", "false"],
     )
     assert default_result.exit_code == 0, default_result.output
-    assert captured["compress_fold_input"] is True
-    assert captured["compress_full_confidence"] is True
+    assert captured["compress_fold_input"] is False
+    assert captured["compress_full_confidence"] is False
     captured.clear()
 
     for compression_value, expected in (("false", False), ("true", True)):

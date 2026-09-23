@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import tempfile
+import uuid
 from typing import List, Optional
 
 import numpy as np
@@ -79,7 +80,7 @@ class DataDumper:
         base_dir: str,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
-        compress_full_confidence: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
         self.base_dir = base_dir
         self.need_atom_confidence = need_atom_confidence
@@ -198,16 +199,96 @@ class DataDumper:
 
             if len(all_atom_plddt) == len(pred_dict["full_data"]):
                 b_factor = all_atom_plddt
-        self._save_structure(
-            pred_coordinates=pred_dict["coordinate"],
-            prediction_save_dir=os.path.join(dump_dir, "models"),
-            sample_name=pdb_id,
-            atom_array=atom_array,
-            entity_poly_type=entity_poly_type,
-            seed=seed,
-            b_factor=b_factor,
-        )
-        self._save_confidence(data=pred_dict, prediction_save_dir=dump_dir, seed=seed)
+        job_dir = Path(dump_dir)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        for sample_index in range(len(pred_dict["coordinate"])):
+            prefix = f"seed-{seed}_sample-{sample_index}"
+            canonical_paths = [
+                Path("models") / f"{prefix}_model.cif",
+                Path("summary_confidences") / f"{prefix}_summary_confidences.json",
+                Path("full_data") / f"{prefix}_full_data.json",
+                Path("full_data") / f"{prefix}_full_data.npz",
+            ]
+            selected_paths = canonical_paths[:2]
+            if self.need_atom_confidence:
+                selected_paths.append(
+                    canonical_paths[3 if self.compress_full_confidence else 2]
+                )
+            with tempfile.TemporaryDirectory(
+                prefix=".sample-staging-", dir=job_dir
+            ) as staging:
+                self._save_structure(
+                    pred_coordinates=pred_dict["coordinate"][
+                        sample_index:sample_index + 1
+                    ],
+                    prediction_save_dir=os.path.join(staging, "models"),
+                    sample_name=pdb_id,
+                    atom_array=atom_array,
+                    entity_poly_type=entity_poly_type,
+                    seed=seed,
+                    b_factor=None if b_factor is None else [b_factor[sample_index]],
+                    sample_index_offset=sample_index,
+                )
+                sample_data = {
+                    "summary_confidence": [pred_dict["summary_confidence"][sample_index]]
+                }
+                if self.need_atom_confidence:
+                    sample_data["full_data"] = [pred_dict["full_data"][sample_index]]
+                self._save_confidence(
+                    data=sample_data,
+                    prediction_save_dir=staging,
+                    seed=seed,
+                    sample_index_offset=sample_index,
+                )
+                self._publish_sample(
+                    [Path(staging) / path for path in selected_paths],
+                    [job_dir / path for path in selected_paths],
+                    [job_dir / path for path in canonical_paths],
+                )
+
+    @staticmethod
+    def _publish_sample(
+        staged_paths: list[Path],
+        final_paths: list[Path],
+        canonical_paths: list[Path],
+    ) -> None:
+        """Publish one sample, rolling back caught failures (not power loss)."""
+        backups = []
+        published = []
+        try:
+            for path in final_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            for path in canonical_paths:
+                if os.path.lexists(path):
+                    # Keep backups outside staging so failed rollback remains
+                    # recoverable after TemporaryDirectory cleanup.
+                    backup = path.with_name(f".{path.name}.{uuid.uuid4().hex}.bak")
+                    os.replace(path, backup)
+                    backups.append((path, backup))
+            for staged, final in zip(staged_paths, final_paths, strict=True):
+                os.replace(staged, final)
+                published.append(final)
+        except BaseException as error:
+            rollback_errors = []
+            for path in reversed(published):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    rollback_errors.append(f"remove {path}: {exc}")
+            for path, backup in reversed(backups):
+                try:
+                    os.replace(backup, path)
+                except OSError as exc:
+                    rollback_errors.append(f"restore {path} from {backup}: {exc}")
+            if rollback_errors:
+                raise RuntimeError(
+                    "Sample publication failed; rollback incomplete: "
+                    + "; ".join(rollback_errors)
+                ) from error
+            raise
+        else:
+            for _, backup in backups:
+                backup.unlink(missing_ok=True)
 
     def _save_structure(
         self,
@@ -218,6 +299,8 @@ class DataDumper:
         entity_poly_type: dict[str, str],
         seed: int,
         b_factor: Optional[List[np.ndarray]] = None,
+        *,
+        sample_index_offset: int = 0,
     ):
         """
         Save predicted structures to CIF files.
@@ -230,13 +313,14 @@ class DataDumper:
             entity_poly_type (dict[str, str]): Entity polymer types.
             seed (int): Prediction seed.
             b_factor (Optional[List[np.ndarray]]): Predicted LDDT scores to be saved as B-factors.
+            sample_index_offset (int): Original index of the first staged sample.
         """
         assert atom_array is not None
         os.makedirs(prediction_save_dir, exist_ok=True)
         for idx, coordinates in enumerate(pred_coordinates):
             output_fpath = os.path.join(
                 prediction_save_dir,
-                f"seed-{seed}_sample-{idx}_model.cif",
+                f"seed-{seed}_sample-{idx + sample_index_offset}_model.cif",
             )
             output_atom_array = atom_array
             if b_factor is not None:
@@ -259,6 +343,8 @@ class DataDumper:
         data: dict,
         prediction_save_dir: str,
         seed: int,
+        *,
+        sample_index_offset: int = 0,
     ):
         """
         Save confidence data to JSON files.
@@ -267,6 +353,7 @@ class DataDumper:
             data (dict): Prediction results containing confidence scores.
             prediction_save_dir (str): Directory where to save the files.
             seed (int): Prediction seed.
+            sample_index_offset (int): Original index of the first staged sample.
         """
         summary_dir = os.path.join(prediction_save_dir, "summary_confidences")
         os.makedirs(summary_dir, exist_ok=True)
@@ -276,10 +363,10 @@ class DataDumper:
         for idx, summary in enumerate(data["summary_confidence"]):
             output_fpath = os.path.join(
                 summary_dir,
-                f"seed-{seed}_sample-{idx}_summary_confidences.json",
+                f"seed-{seed}_sample-{idx + sample_index_offset}_summary_confidences.json",
             )
             save_json(summary, output_fpath, indent=4)
-            prefix = f"seed-{seed}_sample-{idx}_full_data"
+            prefix = f"seed-{seed}_sample-{idx + sample_index_offset}_full_data"
             json_path = Path(full_data_dir) / f"{prefix}.json"
             npz_path = Path(full_data_dir) / f"{prefix}.npz"
             if self.need_atom_confidence:

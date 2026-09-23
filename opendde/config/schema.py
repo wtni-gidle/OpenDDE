@@ -347,7 +347,7 @@ class OpenDDEConfig(BaseConfig):
     seeds: list[int]
     dump_dir: str
     need_atom_confidence: bool
-    compress_full_confidence: bool = True
+    compress_full_confidence: bool = False
     skip: bool = False
     sorted_by_ranking_score: bool
     input_json_path: Optional[str]

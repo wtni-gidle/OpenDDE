@@ -212,10 +212,11 @@ output/tiny/
 Sample numbers are original diffusion sample indices, not confidence ranks.
 `full_data/` is written only with `--need_atom_confidence true` (the default).
 Use `--skip true` to skip job/seed combinations whose required canonical files
-are present and readable; incomplete or corrupt seeds are recomputed. The
+exist and are non-empty; seeds missing a required non-empty file are recomputed.
+Resume checks do not parse file contents or detect non-empty corrupt files. The
 prediction files are written synchronously before each job/seed completes.
-Detailed confidence defaults to compressed NPZ; pass
-`--compress_full_confidence false` to select JSON. Resume checks require the
+Detailed confidence defaults to JSON; pass
+`--compress_full_confidence true` to select compressed NPZ. Resume checks require the
 selected format, and a successful rerun removes the stale JSON/NPZ alternate.
 
 For production runs, enable the preprocessing features you need, for example
@@ -227,7 +228,7 @@ see the inference guide for details.
 
 `pred` runs both stages by default. To prepare portable inputs separately:
 
-`-J/--write_input_json` controls publication separately (unset follows `-D`).
+`-J/--write_input_json` controls publication separately (default true).
 Use `-D true -J false` for private preparation plus prediction without publishing
 input resources, or `-D false -J true` to save supplied conditions without searches.
 Published MSA/mmCIF paths are relative to the JSON. Legacy `templatesPath` is no
@@ -269,8 +270,8 @@ A prepared protein bundle with chain ID `A` contains:
     └── <name>__A_template_0.cif
 ```
 
-Those plain suffixes are produced with `--compress_fold_input false`. The
-default is zstd-compressed `.a3m.zst` / `.cif.zst`. Readers inspect magic bytes,
+Those plain suffixes are the default (`--compress_fold_input false`). The
+true setting writes zstd-compressed `.a3m.zst` / `.cif.zst`. Readers inspect magic bytes,
 so replacing an unpaired `.a3m.zst` in place with ordinary A3M text is allowed;
 the suffix alone does not force decompression.
 

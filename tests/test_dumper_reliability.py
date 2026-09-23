@@ -3,6 +3,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from biotite.structure import AtomArray, BondList
 from biotite.structure.io import pdbx
 
 from runner.dumper import DataDumper, get_clean_full_confidence
+from runner.prediction_resume import seed_outputs_complete
 
 
 @pytest.fixture
@@ -37,7 +39,7 @@ def _minimal_prediction():
     }
 
 
-def test_omitted_compression_defaults_to_npz(tmp_path, atom_array):
+def test_explicit_compression_writes_npz(tmp_path, atom_array):
     from zipfile import ZIP_DEFLATED, ZipFile
 
     prediction = _minimal_prediction()
@@ -49,7 +51,7 @@ def test_omitted_compression_defaults_to_npz(tmp_path, atom_array):
         }
     ]
 
-    DataDumper(str(tmp_path), need_atom_confidence=True).dump(
+    DataDumper(str(tmp_path), need_atom_confidence=True, compress_full_confidence=True).dump(
         group_name="",
         pdb_id="job",
         seed=7,
@@ -382,3 +384,95 @@ def test_failed_npz_publication_preserves_existing_json(
         )
 
     assert json.loads(stale_json.read_text()) == {"still": "usable"}
+
+
+def _dump_generation(root, atoms, *, score, need_full=True, compressed=True):
+    prediction = _minimal_prediction()
+    prediction["coordinate"] = torch.full((1, 1, 3), float(score))
+    prediction["summary_confidence"] = [{"ranking_score": float(score)}]
+    prediction["full_data"] = [{"atom_plddt": torch.tensor([score / 10.0])}]
+    DataDumper(str(root), need_atom_confidence=need_full,
+               compress_full_confidence=compressed).dump(
+        group_name="", pdb_id="job", seed=7, pred_dict=prediction,
+        atom_array=atoms, entity_poly_type={"1": "polypeptide(L)"},
+    )
+
+
+def _output_bytes(root):
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["summary", "full_json", "full_npz", "commit"])
+def test_caught_sample_failure_never_leaves_mixed_generation(
+    tmp_path, atom_array, monkeypatch, existing, failure
+):
+    import runner.dumper as module
+
+    if existing:
+        _dump_generation(tmp_path, atom_array, score=1)
+    before = _output_bytes(tmp_path)
+    original_json = module.save_json
+    original_replace = os.replace
+    fired = False
+
+    def failing_json(data, path, *args, **kwargs):
+        nonlocal fired
+        if (failure == "summary" and "summary_confidences" in str(path)) or (
+            failure == "full_json" and "full_data" in str(path)
+        ):
+            fired = True
+            raise OSError("injected serialization failure")
+        return original_json(data, path, *args, **kwargs)
+
+    def failing_npz(*args, **kwargs):
+        nonlocal fired
+        fired = True
+        raise OSError("injected serialization failure")
+
+    def failing_replace(source, destination):
+        nonlocal fired
+        # Fail once while committing summary, after the new CIF was published.
+        if not fired and Path(destination) == (
+            tmp_path / "job/summary_confidences/seed-7_sample-0_summary_confidences.json"
+        ):
+            fired = True
+            raise OSError("injected publication failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(module, "save_json", failing_json)
+    if failure == "full_npz":
+        monkeypatch.setattr(np, "savez_compressed", failing_npz)
+    if failure == "commit":
+        monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError, match="injected"):
+        _dump_generation(tmp_path, atom_array, score=9,
+                         compressed=failure != "full_json")
+    assert fired
+    assert _output_bytes(tmp_path) == before
+    assert seed_outputs_complete(tmp_path, "job", 7, 1,
+                                 need_atom_confidence=True,
+                                 compress_full_confidence=True) is existing
+
+
+@pytest.mark.parametrize("mode", ["npz", "json", "none"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_sample_success_replaces_generation_and_cleans_stale_formats(
+    tmp_path, atom_array, mode, existing
+):
+    if existing:
+        _dump_generation(tmp_path, atom_array, score=1, compressed=mode != "npz")
+    _dump_generation(tmp_path, atom_array, score=9, need_full=mode != "none",
+                     compressed=mode != "json")
+    job = tmp_path / "job"
+    summary = job / "summary_confidences/seed-7_sample-0_summary_confidences.json"
+    assert json.loads(summary.read_text()) == {"ranking_score": 9.0}
+    atoms = pdbx.CIFFile.read(job / "models/seed-7_sample-0_model.cif").block["atom_site"]
+    np.testing.assert_allclose(atoms["Cartn_x"].as_array(float), [9.0])
+    np.testing.assert_allclose(atoms["B_iso_or_equiv"].as_array(float), [90.0])
+    full_files = sorted(path.name for path in (job / "full_data").glob("*"))
+    assert full_files == ([] if mode == "none" else [f"seed-7_sample-0_full_data.{mode}"])
+    assert seed_outputs_complete(tmp_path, "job", 7, 1,
+                                 need_atom_confidence=mode != "none",
+                                 compress_full_confidence=mode != "json")

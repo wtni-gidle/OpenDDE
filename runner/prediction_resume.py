@@ -37,7 +37,7 @@ def seed_outputs_complete(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
 ) -> bool:
     """Check canonical outputs using only file metadata, never their contents.
 
@@ -91,7 +91,7 @@ def incomplete_job_seed_schedule(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
 ) -> list[list[int]]:
     """Return incomplete seeds for each job without changing requested order."""
     if len(jobs) != len(job_seed_schedule):

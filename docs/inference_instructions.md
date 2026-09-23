@@ -221,7 +221,7 @@ defaults to protein MSA enabled, templates and RNA MSA disabled. `prep` enables
 all three where applicable and prints each prepared JSON path.
 
 `-J/--write_input_json` independently controls public input JSON/resource writes.
-When omitted it follows `-D`. With `-D true -J false`, preparation remains private
+When omitted it defaults to true. With `-D true -J false`, preparation remains private
 until inference finishes and is then cleaned up. With `-D false -J true`, supplied
 conditions are saved without searching. Public templates must use the main JSON's
 `templates` list; legacy `templatesPath` is rejected. See the
@@ -238,7 +238,7 @@ For a protein entity with ID `A`, preparation writes:
     └── <name>__A_template_0.cif
 ```
 
-The plain names above use `--compress_fold_input false`. By default `pred` and
+The plain names above are the default. With `--compress_fold_input true`, `pred` and
 `prep` append `.zst` and write standard zstd frames. Readers detect compression
 from magic bytes, so a manually replaced plain A3M is valid even if its path
 still ends in `.zst`.
@@ -388,17 +388,17 @@ Prediction writes directly under the requested `-o` directory:
 <out>/<name>/
 ├── models/seed-101_sample-0_model.cif
 ├── summary_confidences/seed-101_sample-0_summary_confidences.json
-└── full_data/seed-101_sample-0_full_data.npz
+└── full_data/seed-101_sample-0_full_data.json
 ```
 
 Filenames use the original diffusion sample index, not confidence rank. Seeds
 are part of every filename. `full_data/` is written only with
-`--need_atom_confidence true` (the default). The prepared JSON and `msas/` remain
-where the data stage wrote them, even when inference uses a different output
-directory.
+`--need_atom_confidence true` (the default). The prepared JSON and `msas/` are refreshed
+in the output directory by default, including inference-only and fully skipped runs.
+Use `-J false` to suppress publication without enabling or disabling search.
 
-The detailed path defaults to `.npz`; use `--compress_full_confidence false`
-to select JSON.
+The detailed path defaults to `.json`; use `--compress_full_confidence true`
+to select compressed NPZ.
 Each NPZ key is an existing OpenDDE full-confidence field stored as a primitive
 NumPy array and can be loaded with `numpy.load(path, allow_pickle=False)`.
 
@@ -428,7 +428,7 @@ OpenDDE writes every job/seed synchronously; there is no delayed-write mode.
 | --- | --- |
 | `-D`, `--run_data_pipeline` | Prepare portable bundles; boolean, default `true`. Use a single process for this stage. |
 | `-P`, `--run_inference` | Predict from prepared inputs; boolean, default `true`. |
-| `-J`, `--write_input_json` | Publish portable input JSON/resources; unset follows `-D`. False keeps preparation private. |
+| `-J`, `--write_input_json` | Publish portable input JSON/resources; default true. False keeps preparation private. |
 | `-n`, `--model_name` | Model name. Currently `opendde_v1`. |
 | `--load_checkpoint_path` | Explicit checkpoint path. |
 | `--seeds` | Comma-separated seeds, e.g. `101,102`. Overrides the job's `modelSeeds`; if unset, `modelSeeds` are used, or a random seed when both are absent. |
@@ -437,8 +437,8 @@ OpenDDE writes every job/seed synchronously; there is no delayed-write mode.
 | `--max_template_date` | Automatic data-stage template cutoff, default `2021-09-30`. Explicit templates bypass it. |
 | `--use_rna_msa` | Use/generate RNA MSA features; requires `--use_msa true`. |
 | `--need_atom_confidence` | Write detailed confidence in `full_data/`; default `true`. |
-| `--compress_fold_input` | Write prepared MSA/template text as `.zst`; default `true`. Plain text manually placed under that suffix is still readable. |
-| `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `true`. |
+| `--compress_fold_input` | Write prepared MSA/template text as `.zst`; default `false`. Plain text manually placed under that suffix is still readable. |
+| `--compress_full_confidence` | Write detailed confidence as compressed NPZ instead of JSON; default `false`. |
 | `--skip` | Skip complete job/seed outputs; boolean, default `false`. |
 | `--use_tfg_guidance` | Enable Training-Free Guidance. |
 | `--foldcp_mode` | `single` or `distributed`; use `distributed` with `torchrun` for multi-GPU Fold-CP inference. |

@@ -144,7 +144,7 @@ def _all_requested_outputs_complete(
     n_sample: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
 ) -> bool:
     """Check deterministic requested schedules before loading the model."""
     cli_seeds = (
@@ -443,7 +443,7 @@ def get_default_runner(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
     skip: bool = False,
     device: InferenceDevice = "auto",
 ) -> InferenceRunner:
@@ -620,13 +620,13 @@ def run_prediction_workflow(
     foldcp_devices: str = "",
     foldcp_metrics_jsonl: str = "",
     *,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     write_input_json: bool | None = None,
     max_template_date: str = "2021-09-30",
     skip: bool = False,
-    compress_fold_input: bool = True,
+    compress_fold_input: bool = False,
     device: InferenceDevice = "auto",
 ) -> list[str]:
     """
@@ -680,7 +680,7 @@ def run_prediction_workflow(
     """
     if not run_data_pipeline and not run_inference:
         raise ValueError("Enable at least one of run_data_pipeline or run_inference.")
-    publish = run_data_pipeline if write_input_json is None else write_input_json
+    publish = True if write_input_json is None else write_input_json
     if (run_data_pipeline or publish) and foldcp_mode == "distributed":
         raise ValueError(
             "Prepare inputs in a single process with -D true -P false, "
@@ -826,8 +826,8 @@ inference_jsons = run_prediction_workflow
     "-J",
     "--write_input_json",
     type=bool,
-    default=None,
-    help="Publish a portable input JSON and resources; unset follows -D.",
+    default=True,
+    help="Publish a portable input JSON and resources (default: true).",
 )
 @click.option(
     "--max_template_date",
@@ -950,13 +950,13 @@ inference_jsons = run_prediction_workflow
 @click.option(
     "--compress_fold_input",
     type=bool,
-    default=True,
+    default=False,
     help="Write prepared MSA and template resources as zstd files.",
 )
 @click.option(
     "--compress_full_confidence",
     type=bool,
-    default=True,
+    default=False,
     help="Write detailed confidence as compressed NPZ instead of JSON.",
 )
 @click.option(
@@ -1523,7 +1523,7 @@ def msatemplate(
 @click.option(
     "--compress_fold_input",
     type=bool,
-    default=True,
+    default=False,
     help="Write prepared MSA and template resources as zstd files.",
 )
 @click.option(
@@ -1629,7 +1629,7 @@ def inputprep(
     nhmmer_n_cpu: Optional[int],
     msa_server_mode: Optional[str],
     max_template_date: str = "2021-09-30",
-    compress_fold_input: bool = True,
+    compress_fold_input: bool = False,
 ) -> list[str]:
     """
     Perform MSA search, template search, and RNA MSA search sequentially.

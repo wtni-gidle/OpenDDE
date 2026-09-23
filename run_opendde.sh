@@ -12,13 +12,13 @@ Required:
 Wrapper options:
   -D BOOL   Run data pipeline (default: true).
   -P BOOL   Run inference (default: true).
-  -J BOOL   Write portable input JSON/resources (default: follows -D).
+  -J BOOL   Write portable input JSON/resources (default: true).
   -r LIST   One seed or comma-separated seeds.
   -s INT    Diffusion samples per seed (default: 5).
   -m DATE   Automatic-template cutoff (default: 2021-09-30).
   -S BOOL   Skip complete job/seed outputs (default: false).
-  -z BOOL   --compress_fold_input (default: true).
-  -f BOOL   --compress_full_confidence (default: true).
+  -z BOOL   --compress_fold_input (default: false).
+  -f BOOL   --compress_full_confidence (default: false).
   -a BOOL   --need_atom_confidence (default: true).
   -h        Show this help.
 
@@ -31,13 +31,13 @@ input_path=""
 output_dir=""
 run_data_pipeline="true"
 run_inference="true"
-write_input_json=""
+write_input_json="true"
 seeds=""
 sample="5"
 max_template_date="2021-09-30"
 skip="false"
-compress_fold_input="true"
-compress_full_confidence="true"
+compress_fold_input="false"
+compress_full_confidence="false"
 need_atom_confidence="true"
 
 while getopts ":i:o:D:P:J:r:s:m:S:z:f:a:h" option; do

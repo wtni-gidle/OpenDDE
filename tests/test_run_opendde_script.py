@@ -81,6 +81,8 @@ def test_run_opendde_forwards_wrapper_options_and_trailing_arguments(tmp_path: P
         "true",
         "--need_atom_confidence",
         "true",
+        "--write_input_json",
+        "true",
         "--seeds",
         "101,102",
         "--device",
@@ -124,7 +126,7 @@ def test_run_opendde_compression_default_and_explicit_false(tmp_path: Path):
         "CAPTURED_ARGS": str(captured),
     }
 
-    for extra_args, expected in (([], "true"), (["-f", "false"], "false")):
+    for extra_args, expected in (([], "false"), (["-f", "true"], "true")):
         result = subprocess.run(
             [
                 "bash",

@@ -344,7 +344,7 @@ def test_compressed_bundle_transcodes_plain_and_zstd_resources_once(tmp_path: Pa
         ],
     }
 
-    prepared_path = Path(write_prepared_job(job, tmp_path / "output"))
+    prepared_path = Path(write_prepared_job(job, tmp_path / "output", compress_fold_input=True))
     prepared = json.loads(prepared_path.read_text())[0]
     chain = prepared["sequences"][0]["proteinChain"]
     assert chain["unpairedMsaPath"] == "msas/compressed__A_unpairedmsa.a3m.zst"
