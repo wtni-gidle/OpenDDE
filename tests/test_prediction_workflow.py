@@ -245,8 +245,10 @@ def test_template_cutoff_reaches_finalizer_and_search_uses_scratch(
         assert Path(kwargs["msa_for_template_search_dir"]) != tmp_path
         Path(kwargs["output_path"]).write_text("searched hits")
 
-    def finalize(sequence, path, featurizer, *, max_template_date):
+    def finalize(sequence, path, featurizer, *, max_template_date, diagnostic_context):
         assert Path(path).read_text() == "searched hits"
+        assert "task 'job'" in diagnostic_context
+        assert "sequences[0]" in diagnostic_context
         seen.append(max_template_date)
         return []
 

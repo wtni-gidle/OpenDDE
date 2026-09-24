@@ -18,7 +18,10 @@ from opendde.data.template.template_utils import (
     TemplateHitFeaturizer,
     TemplateHitProcessor,
 )
+from opendde.utils.logger import get_logger
 from opendde.utils.text_io import read_text
+
+logger = get_logger(__name__)
 
 
 def reject_cached_template_featurizer(
@@ -213,6 +216,7 @@ def finalize_template_hits(
     template_featurizer: TemplateHitFeaturizer,
     *,
     max_template_date: str | datetime | None,
+    diagnostic_context: str | None = None,
 ) -> list[dict[str, Any]]:
     """Freeze selected, realigned search hits as portable explicit templates."""
     reject_cached_template_featurizer(template_featurizer)
@@ -233,7 +237,15 @@ def finalize_template_hits(
         hits=hits,
         max_template_date=max_template_date,
     )
+    context = f"source={path}"
+    if diagnostic_context:
+        context = f"{diagnostic_context}; {context}"
+    for error in result.errors:
+        logger.error("Template finalization [%s]: %s", context, error)
+    for warning in result.warnings:
+        logger.warning("Template finalization [%s]: %s", context, warning)
     entries = []
+    retained_ids = []
     for hit in result.hits[:4]:
         pdb_id, chain_id = get_pdb_id_and_chain(hit)
         pdb_id = template_featurizer._obsolete_pdbs.get(pdb_id, pdb_id)
@@ -255,4 +267,29 @@ def finalize_template_hits(
             "templateIndices": list(mapping.values()),
         }
         entries.append(entry)
+        retained_ids.append(f"{pdb_id}_{chain_id}")
+    if entries:
+        outcome = "templates ready"
+    elif result.errors:
+        outcome = (
+            "no templates retained with reported errors; continuing without templates"
+        )
+    elif not hits:
+        outcome = "no search hits; continuing without templates"
+    else:
+        outcome = (
+            "no templates retained after filtering/selection; "
+            "continuing without templates"
+        )
+    logger.info(
+        "Template finalization [%s]: retained %d templates: %s; "
+        "search_hits=%d, errors=%d, warnings=%d; %s",
+        context,
+        len(entries),
+        retained_ids,
+        len(hits),
+        len(result.errors),
+        len(result.warnings),
+        outcome,
+    )
     return entries

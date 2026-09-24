@@ -170,6 +170,16 @@ up to four selected templates. Explicit templates bypass the date cutoff,
 matching AF3 semantics; model assembly still uses at most four templates.
 Enable `--use_template true` again during inference to use prepared templates.
 
+Automatic finalization logs every error and warning returned by the native
+template featurizer, with the source hit file and task/chain context when
+available. Its completion summary lists the retained template identities and
+count, including zero. Empty searches and ordinary filtering/selection are
+distinguished from zero retained templates with reported errors, such as CIF
+loading, parsing, alignment, or missing release-date metadata failures.
+Preparation retains the existing continuation policy: returned errors still
+allow the successfully retained templates, or `templates: []` when none remain.
+Exceptions raised by parsing or export continue to propagate.
+
 The EnsembleFold wrapper does not create or reuse parsed-template `.pkl` caches,
 including temporary parsing caches. Preparation reads current CIF files and
 inference rebuilds features from the current explicit templates. Custom template

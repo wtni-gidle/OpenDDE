@@ -251,16 +251,21 @@ def update_template_info(
                 protein_chain["templatesPath"] = template_path
                 actual_updated = True
     if template_featurizer is not None:
-        for infer_data in json_data:
-            for sequence in infer_data["sequences"]:
+        for task_idx, infer_data in enumerate(json_data):
+            task_name = infer_data.get("name", f"task_{task_idx}")
+            for sequence_idx, sequence in enumerate(infer_data["sequences"]):
                 protein_chain = sequence.get("proteinChain")
                 if protein_chain is None or protein_chain.get("templates") is not None:
                     continue
+                context = f"task {task_name!r}, proteinChain sequences[{sequence_idx}]"
+                if protein_chain.get("id") is not None:
+                    context += f", chain IDs {protein_chain['id']!r}"
                 protein_chain["templates"] = finalize_template_hits(
                     protein_chain["sequence"],
                     protein_chain["templatesPath"],
                     template_featurizer,
                     max_template_date=max_template_date,
+                    diagnostic_context=context,
                 )
                 del protein_chain["templatesPath"]
                 actual_updated = True
