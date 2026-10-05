@@ -1,3 +1,5 @@
+> EnsembleFold wrapper 的当前用法、输入输出及验证记录统一维护在[方法手册](../docs/usage/opendde.md)和[共同说明](../docs/usage/README.md)。旧 wrapper 专页已合并归档；下文原生项目说明保留其自身适用范围。
+
 # OpenDDE-Preview
 
 
@@ -226,68 +228,12 @@ see the inference guide for details.
 
 ## Prepare Once, Then Predict
 
-`pred` runs both stages by default. To prepare portable inputs separately:
-
-`-J/--write_input_json` controls publication separately (default true).
-Use `-D true -J false` for private preparation plus prediction without publishing
-input resources, or `-D false -J true` to save supplied conditions without searches.
-Published MSA/mmCIF paths are relative to the JSON. Legacy `templatesPath` is no
-longer accepted; templates live in the main JSON as single-chain CIF plus indices.
-
-```bash
-# Data only: enable the searches needed for your input
-opendde pred -i input.json -o ./output -D true -P false \
-  --use_template true
-
-# Inference only: use the prepared job named "my_job"
-opendde pred -i ./output/my_job/my_job_data.json -o ./output \
-  -D false -P true --use_template true
-
-# Both stages (the default)
-opendde pred -i input.json -o ./output --use_template true
-
-# Data-only convenience: protein MSA, templates, and RNA MSA when present
-opendde prep -i input.json -o ./output
-
-# Equivalent convenience runner; OPENDDE_BIN selects your environment command
-./run_opendde.sh -i input.json -o ./output -D true -P false
-```
-
-Use your own `input.json`; `my_job` above is its job's `name`. Data-only never
-loads the model. Inference-only also accepts a directory and recursively finds
-only `*_data.json` bundles; it runs no searches and, unless `-J true` is set,
-does not rewrite inputs.
-Both stage switches default to `true`; setting both to `false` is an error.
-
-A prepared protein bundle with chain ID `A` contains:
-
-```text
-<out>/<name>/
-├── <name>_data.json
-└── msas/
-    ├── <name>__A_pairedmsa.a3m
-    ├── <name>__A_unpairedmsa.a3m
-    └── <name>__A_template_0.cif
-```
-
-Those plain suffixes are the default (`--compress_fold_input false`). The
-true setting writes zstd-compressed `.a3m.zst` / `.cif.zst`. Readers inspect magic bytes,
-so replacing an unpaired `.a3m.zst` in place with ordinary A3M text is allowed;
-the suffix alone does not force decompression.
-
-Only supplied or generated MSA/template resources are included. Their paths are
-relative to the JSON file, so the whole job directory can be moved. `FILE_`
-ligands remain caller-managed external files, recorded with absolute paths in
-the prepared JSON. You can replace the prepared
-unpaired A3M in place and keep the paired A3M and templates for inference-only.
-The existing `msa_pair_as_unpair=true` default also merges paired rows into the
-unpaired pool and deduplicates them.
-
-See the [native JSON example](examples/example_wrapper_input.json) and
-[input format](docs/infer_json_format.md) for explicit templates and residue
-mappings. The example's resource paths are illustrative; supply those files
-before running it. Automatic templates use `--max_template_date` (default
-`2021-09-30`); explicit templates bypass that cutoff.
+The EnsembleFold staged workflow, portable inputs, publication switches and
+output layout are maintained in the [OpenDDE wrapper manual](../docs/usage/opendde.md).
+Use its current examples for data-only and inference-only runs. The
+[native JSON reference](docs/infer_json_format.md) and
+[MSA/template pipeline reference](docs/msa_template_pipeline.md) retain the
+underlying schema and method-specific processing details.
 
 ## Multi-GPU Fold-CP Inference
 

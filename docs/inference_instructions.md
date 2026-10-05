@@ -200,80 +200,11 @@ opendde json -i examples/2lwu.cif -o ./output --altloc first --assembly_id 1
 
 ## Prepare portable inputs
 
-For an input file `input.json` containing a job named `my_job`:
-
-```bash
-# Data only: enable the features needed by your input
-opendde pred -i input.json -o ./output -D true -P false \
-  --use_template true --use_rna_msa true
-
-# Data-only convenience, enabling protein MSA, templates, and RNA MSA
-opendde prep -i input.json -o ./output
-
-# Inference only: consume the prepared bundle
-opendde pred -i ./output/my_job/my_job_data.json -o ./output \
-  -D false -P true --use_template true --use_rna_msa true
-```
-
-`-D/--run_data_pipeline` and `-P/--run_inference` are booleans, both defaulting
-to `true`. Data-only never loads the model; both `false` is an error. `pred`
-defaults to protein MSA enabled, templates and RNA MSA disabled. `prep` enables
-all three where applicable and prints each prepared JSON path.
-
-`-J/--write_input_json` independently controls public input JSON/resource writes.
-When omitted it defaults to true. With `-D true -J false`, preparation remains private
-until inference finishes and is then cleaned up. With `-D false -J true`, supplied
-conditions are saved without searching. Public templates must use the main JSON's
-`templates` list; legacy `templatesPath` is rejected. See the
-[MSA/template guide](msa_template_pipeline.md#independent-publication-and-temporary-files).
-
-For a protein entity with ID `A`, preparation writes:
-
-```text
-<out>/<name>/
-├── <name>_data.json
-└── msas/
-    ├── <name>__A_pairedmsa.a3m
-    ├── <name>__A_unpairedmsa.a3m
-    └── <name>__A_template_0.cif
-```
-
-The plain names above are the default. With `--compress_fold_input true`, `pred` and
-`prep` append `.zst` and write standard zstd frames. Readers detect compression
-from magic bytes, so a manually replaced plain A3M is valid even if its path
-still ends in `.zst`.
-
-Only supplied/generated MSA/template resources appear, including RNA MSA.
-The single-job JSON refers to these copied resources with relative paths;
-move the entire job directory together to preserve them. `FILE_` ligand files
-remain caller-managed absolute external references. Keep those files accessible
-or update their paths after moving to another machine. Search scratch files are
-temporary; the data stage writes one final JSON per job.
-Inference-only accepts the prepared JSON directly or recursively discovers only
-`*_data.json` bundles in a directory. It runs no searches and does not rewrite
-the input JSON. Keep the relevant `--use_*` flags enabled to consume features.
-
-You can replace just the unpaired A3M file in place before inference-only,
-keeping paired A3M and templates. The `msa_pair_as_unpair=true` default also
-merges paired rows into the unpaired pool with deduplication; the paired input
-still supplies cross-chain pairing. See the pipeline guide for supported
-species identifiers in A3M headers.
-
-Search behavior:
-
-- Protein MSA uses the public ColabFold MMseqs2 API unless A3M paths are already
-  present in the JSON.
-- Template and RNA-MSA search use local databases under
-  `$OPENDDE_ROOT_DIR/search_database/`.
-- With `--use_template true`, omitted or `null` `templates` requests automatic
-  data-stage selection; `[]` uses no templates; a non-empty list uses explicit
-  mmCIFs and residue mappings. Automatic selection uses `--max_template_date`
-  (default `2021-09-30`); explicit templates bypass the cutoff.
-- Prepared explicit templates need no HMMER, Kalign, template database, or PDBe
-  access during inference. Checkpoints and common runtime assets remain needed.
-
-The low-level `msa`/`mt` diagnostic commands retain legacy intermediate files
-and hit-file behavior. Details: [msa_template_pipeline.md](./msa_template_pipeline.md).
+The portable-input and two-stage wrapper walkthrough is maintained in the
+[OpenDDE wrapper manual](../../docs/usage/opendde.md). It covers publication,
+compression, prepared-directory discovery, MSA replacement and explicit templates.
+For native search commands and species identifiers, use the
+[MSA/template pipeline reference](msa_template_pipeline.md).
 
 ## Run prediction
 
