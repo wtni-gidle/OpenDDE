@@ -107,6 +107,12 @@ def _discover_inference_jsons(
     for path in input_path.rglob("*_data.json" if prepared_only else "*.json"):
         if not path.is_file() or path.name.endswith(_GENERATED_INPUT_SUFFIXES):
             continue
+        # Canonical confidence outputs also end in _data.json. Keep recursive
+        # prepared discovery, but never interpret result directories as inputs.
+        if {"full_data", "summary_confidences"}.intersection(
+            path.relative_to(input_path).parts[:-1]
+        ):
+            continue
         resolved = path.resolve()
         if not prepared_only and (
             resolved == output_root or output_root in resolved.parents

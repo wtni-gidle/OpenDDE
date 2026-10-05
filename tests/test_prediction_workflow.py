@@ -169,6 +169,63 @@ def test_inference_directory_can_share_output_and_ignores_prediction_json(
     assert predictions == paths == [str(prepared)]
 
 
+@pytest.mark.parametrize("publish", [False, True])
+@pytest.mark.parametrize("skip", [False, True])
+def test_directory_resume_excludes_canonical_result_directories(
+    tmp_path, monkeypatch, publish, skip
+):
+    output = tmp_path / "out"
+    target = output / "nested" / "job"
+    target.mkdir(parents=True)
+    prepared = target / "job_data.json"
+    prepared.write_text(json.dumps([{
+        "name": "job", "modelSeeds": [1],
+        "sequences": [{"proteinChain": {
+            "sequence": "ACD", "count": 1, "templates": [],
+            "pairedMsa": "", "unpairedMsa": ">query\nACD\n",
+        }}],
+    }]))
+    for directory, filename in (
+        ("full_data", "seed-1_sample-0_full_data.json"),
+        ("summary_confidences", "unexpected_data.json"),
+    ):
+        result = target / directory / filename
+        result.parent.mkdir()
+        result.write_text('{"score": 0.8}')
+    predictions = []
+    monkeypatch.setattr(batch_inference, "get_default_runner", lambda **kwargs:
+                        SimpleNamespace(configs={}, close=lambda: None))
+    monkeypatch.setattr(batch_inference, "infer_predict", lambda runner, configs:
+                        predictions.append(configs["input_json_path"]))
+    paths = batch_inference.run_prediction_workflow(
+        str(output), str(output), run_data_pipeline=False,
+        write_input_json=publish, skip=skip, seeds=[1],
+    )
+    assert predictions == paths
+    assert len(paths) == 1
+    assert json.loads(Path(paths[0]).read_text())[0]["name"] == "job"
+
+
+def test_directory_resume_still_rejects_malformed_prepared_input(tmp_path):
+    (tmp_path / "broken_data.json").write_text('{"score": 0.8}')
+    with pytest.raises(ValueError, match="top-level list"):
+        batch_inference.run_prediction_workflow(
+            str(tmp_path), str(tmp_path), run_data_pipeline=False,
+            write_input_json=False,
+        )
+
+
+def test_direct_result_json_still_receives_strict_validation(tmp_path):
+    result = tmp_path / "full_data" / "seed-1_sample-0_full_data.json"
+    result.parent.mkdir()
+    result.write_text('{"score": 0.8}')
+    with pytest.raises(ValueError, match="top-level list"):
+        batch_inference.run_prediction_workflow(
+            str(result), str(tmp_path), run_data_pipeline=False,
+            write_input_json=False,
+        )
+
+
 @pytest.mark.parametrize(
     "templates",
     [[], [{"mmcifPath": "manual.cif", "queryIndices": [0], "templateIndices": [0]}]],
