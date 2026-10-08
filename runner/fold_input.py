@@ -7,6 +7,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import os
+import re
 import shutil
 from os import PathLike
 from pathlib import Path
@@ -190,7 +191,14 @@ def _stage_prepared_job(
 
     prepared_path = job_dir / f"{prepared['name']}_data.json"
     with prepared_path.open("w", encoding="utf-8") as handle:
-        json.dump([prepared], handle, indent=2)
+        json_text = json.dumps([prepared], indent=2)
+        # Match AF3: keep template indices and model seeds on single lines.
+        json_text = re.sub(
+            r'("(?:queryIndices|templateIndices|modelSeeds)": \[)([\s\n\d,]+)(\],?)',
+            lambda match: match[1] + re.sub(r'\n\s+', ' ', match[2].strip()) + match[3],
+            json_text,
+        )
+        handle.write(json_text)
     return str(prepared_path)
 
 
