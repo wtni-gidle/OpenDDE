@@ -5,8 +5,8 @@ import json
 import logging
 import os
 import random
-import shutil
 import sys
+import tempfile
 import time
 import traceback
 from collections.abc import Callable, Mapping, Sized
@@ -1348,19 +1348,11 @@ class InferenceRunner(object):
         Initialize basic directory structures for dumping results and errors.
         """
         self.dump_dir = self.configs.dump_dir
-        self.error_dir = opjoin(self.dump_dir, "ERR")
         os.makedirs(self.dump_dir, exist_ok=True)
-        # ERR is the status of this Runner invocation, not an append-only log.
-        # A successful retry in the same output directory must not retain a
-        # stale OOM/disk/feature error from an earlier process. Only rank 0
-        # publishes diagnostics; the synchronized initialization stage makes
-        # every Fold-CP peer wait until this reset has completed.
-        if _distributed_rank() == 0:
-            if os.path.islink(self.error_dir) or os.path.isfile(self.error_dir):
-                os.unlink(self.error_dir)
-            elif os.path.isdir(self.error_dir):
-                shutil.rmtree(self.error_dir)
-            os.makedirs(self.error_dir, exist_ok=True)
+        error_root = opjoin(self.dump_dir, "ERR")
+        os.makedirs(error_root, exist_ok=True)
+        # Each runner/rank owns its diagnostics; never clear another run's ERR.
+        self.error_dir = tempfile.mkdtemp(prefix="run-", dir=error_root)
 
     def init_model(self) -> None:
         """
@@ -1971,10 +1963,10 @@ def _infer_predict_impl(
             logger.info(
                 f"[Rank {_distributed_rank()}] Seed {seed} completed in {t1_end - t1_start:.2f}s."
             )
-    # Do not let rank 0 remove ERR while another 1xP rank may still write it.
+    # Keep the native synchronization before cleaning each rank's own directory.
     if world_control_group is not None:
         dist.barrier(group=world_control_group)
-    if _distributed_rank() == 0 and opexists(runner.error_dir):
+    if opexists(runner.error_dir):
         try:
             if not os.listdir(runner.error_dir):
                 os.rmdir(runner.error_dir)

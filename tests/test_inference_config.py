@@ -4,6 +4,7 @@ import gc
 import inspect
 import os
 import weakref
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -1893,9 +1894,7 @@ def test_error_report_recreates_directory_removed_by_previous_input(tmp_path):
     assert (error_dir / "later.txt").read_text() == "later failure"
 
 
-def test_runner_start_removes_stale_error_reports_from_previous_run(
-    tmp_path, monkeypatch
-):
+def test_runner_start_preserves_previous_error_reports_in_separate_directory(tmp_path):
     from runner import inference
 
     error_dir = tmp_path / "ERR"
@@ -1903,9 +1902,10 @@ def test_runner_start_removes_stale_error_reports_from_previous_run(
     (error_dir / "old-oom.txt").write_text("previous run failed")
     runner = object.__new__(inference.InferenceRunner)
     runner.configs = SimpleNamespace(dump_dir=str(tmp_path))
-    monkeypatch.setattr(inference, "_distributed_rank", lambda: 0)
 
     runner.init_basics()
 
     assert error_dir.is_dir()
-    assert list(error_dir.iterdir()) == []
+    assert (error_dir / "old-oom.txt").read_text() == "previous run failed"
+    assert Path(runner.error_dir).parent == error_dir
+    assert list(Path(runner.error_dir).iterdir()) == []
