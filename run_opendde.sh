@@ -10,6 +10,8 @@ Required:
   -o PATH   Output directory.
 
 Wrapper options:
+  -y PATH   YAML settings; explicitly supplied keys override CLI.
+  -d IDS    Set CUDA_VISIBLE_DEVICES (otherwise preserve the environment).
   -D BOOL   Run data pipeline (default: true).
   -P BOOL   Run inference (default: true).
   -J BOOL   Write portable input JSON/resources (default: true).
@@ -21,6 +23,9 @@ Wrapper options:
   -f BOOL   --compress_full_confidence (default: false).
   -a BOOL   --need_atom_confidence (default: true).
   -h        Show this help.
+
+Long aliases: --input --output-dir --config --gpu-device
+--run-data-pipeline --run-inference --model-seeds --help
 
 Set OPENDDE_BIN to the OpenDDE command from your configured environment;
 it defaults to "opendde". Arguments after -- are forwarded unchanged.
@@ -40,10 +45,36 @@ compress_fold_input="false"
 compress_full_confidence="false"
 need_atom_confidence="true"
 
-while getopts ":i:o:D:P:J:r:s:m:S:z:f:a:h" option; do
+# Normalize common long aliases while retaining existing short options.
+normalized_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --input) option=-i ;;
+        --output-dir) option=-o ;;
+        --config) option=-y ;;
+        --gpu-device) option=-d ;;
+        --run-data-pipeline) option=-D ;;
+        --run-inference) option=-P ;;
+        --model-seeds) option=-r ;;
+        --help) normalized_args+=(-h); shift; continue ;;
+        --) normalized_args+=("$@"); break ;;
+        *) normalized_args+=("$1"); shift; continue ;;
+    esac
+    if [[ $# -lt 2 ]]; then
+        echo "Error: $1 requires a value." >&2
+        exit 2
+    fi
+    normalized_args+=("$option" "$2")
+    shift 2
+done
+set -- "${normalized_args[@]}"
+
+while getopts ":i:o:y:d:D:P:J:r:s:m:S:z:f:a:h" option; do
     case "$option" in
         i) input_path=$OPTARG ;;
         o) output_dir=$OPTARG ;;
+        y) config_path=$OPTARG ;;
+        d) gpu_device=$OPTARG ;;
         D) run_data_pipeline=$OPTARG ;;
         P) run_inference=$OPTARG ;;
         J) write_input_json=$OPTARG ;;
@@ -98,6 +129,12 @@ if [[ -n $write_input_json ]]; then
 fi
 if [[ -n $seeds ]]; then
     command_args+=(--seeds "$seeds")
+fi
+if [[ -n "${config_path:-}" ]]; then
+    command_args+=(--config "$config_path")
+fi
+if [[ "${gpu_device+x}" == x ]]; then
+    export CUDA_VISIBLE_DEVICES="$gpu_device"
 fi
 command_args+=("$@")
 

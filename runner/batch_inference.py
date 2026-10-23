@@ -48,6 +48,7 @@ from runner.inference import (
     InferenceRunner,
     infer_predict,
 )
+from runner.inference_config import load_config
 from runner.msa_search import msa_search, update_infer_json
 from runner.prediction_resume import incomplete_job_seed_schedule
 from runner.rna_msa_search import update_rna_msa_info
@@ -1076,6 +1077,12 @@ inference_jsons = run_prediction_workflow
     default=None,
     help="Number of CPUs for nhmmer.",
 )
+@click.option(
+    "--config",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Flat YAML settings; explicit values override CLI options.",
+)
 def predict(
     input: str,
     out_dir: str,
@@ -1123,6 +1130,7 @@ def predict(
     run_inference: bool = True,
     write_input_json: bool | None = None,
     max_template_date: str = "2021-09-30",
+    config: Optional[str] = None,
 ) -> None:
     """
     Run predictions with OpenDDE using various input formats.
@@ -1169,13 +1177,43 @@ def predict(
         foldcp_size_cp (int): Number of context-parallel ranks.
         foldcp_devices (str): Optional visible device list recorded in metrics.
         foldcp_metrics_jsonl (str): Optional JSONL path for benchmark records.
+        config (Optional[str]): Flat YAML overrides for persistent settings.
     """
+    config_values = load_config(config)
+    for option in predict.params:
+        if option.name in config_values and isinstance(option.type, click.Choice):
+            config_values[option.name] = option.type.convert(
+                config_values[option.name], option, None
+            )
+    write_input_json = config_values.get("write_input_json", write_input_json)
+    compress_fold_input = config_values.get("compress_fold_input", compress_fold_input)
+    compress_full_confidence = config_values.get(
+        "compress_full_confidence", compress_full_confidence
+    )
+    skip = config_values.get("skip", skip)
+    sample = config_values.get("sample", sample)
+    step = config_values.get("step", step)
+    model_name = config_values.get("model_name", model_name)
+    dtype = config_values.get("dtype", dtype)
+    cycle = config_values.get("cycle", cycle)
+    use_msa = config_values.get("use_msa", use_msa)
+    use_template = config_values.get("use_template", use_template)
+    use_rna_msa = config_values.get("use_rna_msa", use_rna_msa)
+    max_template_date = config_values.get("max_template_date", max_template_date)
+    load_checkpoint_path = config_values.get("load_checkpoint_path", load_checkpoint_path)
+    need_atom_confidence = config_values.get("need_atom_confidence", need_atom_confidence)
+
     init_logging()
+    if config_values:
+        logger.info(
+            "YAML overrides: %s",
+            ", ".join(f"{key}={value!r}" for key, value in config_values.items()),
+        )
     logger.info(f"Run infer with input={input}, out_dir={out_dir}, sample={sample}")
     if use_default_params:
         if model_name in SUPPORTED_MODELS:
-            cycle = 10
-            step = 200
+            cycle = config_values.get("cycle", 10)
+            step = config_values.get("step", 200)
         else:
             raise RuntimeError(
                 f"{model_name} is not supported for inference in our model list"
